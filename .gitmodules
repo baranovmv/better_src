@@ -1,0 +1,3 @@
+[submodule "ctypesgen"]
+	path = external/ctypesgen
+	url = https://github.com/ctypesgen/ctypesgen.git
