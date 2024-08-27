@@ -3,16 +3,16 @@
 
 src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, const unsigned int in_fs, const unsigned int out_fs)
 {
-    src_t* imp = nullptr;
+    Src* imp = nullptr;
     switch (profile) {
         case SRC_PROFILE_DEFAULT:
-            imp = (src_t*)(new Src(nchannels, 32, in_fs, out_fs));
+            imp = new Src(nchannels + 1, 33, in_fs, out_fs);
             break;
         default:
             return nullptr;
     }
 
-    return imp;
+    return imp->valid() ? (src_t*)imp : nullptr;
 }
 
 void src_set_scale(src_t * src, const float coeff)
@@ -40,6 +40,12 @@ void src_close(src_t * src)
     Src * imp = (Src*)src;
 
     delete imp;
+}
+
+int src_push_samples(src_t *src, float *samples, unsigned int nsamples) {
+    Src * imp = (Src*)src;
+
+    return imp->push(samples, nsamples);
 }
 
 

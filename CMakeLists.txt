@@ -70,14 +70,15 @@ add_link_options(
     -funwind-tables
     -fno-omit-frame-pointer
   )
-  add_compile_options(
-    -fsanitize=address
-    -fsanitize=undefined
-  )
-  add_link_options(
-    -fsanitize=address
-    -fsanitize=undefined
-  )
+#  add_compile_options(
+#    -fsanitize=address
+#    -fsanitize=undefined
+#  )
+#  add_link_options(
+#    -fsanitize=address
+#    -fsanitize=undefined
+#    -static-libasan
+#  )
 #endif()
 
 add_library(src SHARED converter.h src.cpp)
