@@ -35,6 +35,12 @@ unsigned int src_pop_samples(src_t *src, float *out, const unsigned int max_out)
     return imp->resample(out, max_out);
 }
 
+float src_left_to_process(const src_t * src)
+{
+    const Src * imp = (const Src*)src;
+    return imp->left_2_process();
+}
+
 void src_close(src_t * src)
 {
     Src * imp = (Src*)src;

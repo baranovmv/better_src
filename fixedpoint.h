@@ -92,6 +92,13 @@ public:
         return value;
     }
 
+    /// Does linear interpolation between two values weighted by fractional part of value only.
+    float fract_linear_interp(float x1, float x2)
+    {
+        const float fract = static_cast<float>(value & fract_bitmask_) / (1 << FractionalBits);
+        return (x2 - x1) * fract + x1;
+    }
+
 private:
     T value;
     static constexpr T fract_bitmask_ = (1 << FractionalBits) - 1;

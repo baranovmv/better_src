@@ -2,6 +2,7 @@ from src import *
 
 import ctypes
 import numpy as np
+from scipy import interpolate
 import matplotlib.pyplot as plt
 import unittest
 
@@ -40,25 +41,50 @@ class TestSrcMethods(unittest.TestCase):
             self.pushed += self.FrameSz
             while True:
                 navailable = src_pop_samples(self.src, input_frame, 16)
+                # timestamp of the last sample
+                tgap = self.pushed - src_left_to_process(self.src)
                 if navailable == 0:
                     break
+                t = tgap - dt * navailable
                 self.sig_out = np.concat((self.sig_out, np.array([input_frame[i] for i in range(navailable)])))
                 self.sig_out_t = np.concat((self.sig_out_t, np.arange(t, t + dt * navailable, dt),))
                 t = self.sig_out_t[-1] + dt
 
-    def test_flow(self):
+    def test_linear(self):
         x = np.arange(-self.FrameSz*2.5, self.FrameSz*2.5)
+        # x = np.ones(256) - 41
         t = np.arange(0, x.shape[0])
         self.do_resample(x)
 
-        idx = np.isin(t, self.sig_out_t)
-        t = t[idx]
-        self.assertTrue(np.all(t == self.sig_out_t))
-        self.assertTrue(np.all(np.abs(x[idx] - self.sig_out) < 1e-10))
+        finterp = interpolate.InterpolatedUnivariateSpline(t, x, k=3)
+        # finterp = interp1d(t, x, kind='linear', assume_sorted=True)
+        y_ref = finterp(self.sig_out_t)
+        self.assertTrue(np.all(np.abs(y_ref-self.sig_out)/self.sig_out < 1e-3))
 
-        # plt.plot(t, x)
-        # plt.plot(self.sig_out_t, self.sig_out)
-        # plt.show()
+    def test_sinewave(self):
+        fs = np.pi / 8
+        n = np.arange(0, 96)
+        s_inp = np.sin(fs * n)
+        self.do_resample(s_inp)
+
+        finterp = interpolate.InterpolatedUnivariateSpline(n, s_inp, k=3)
+        y_ref = finterp(self.sig_out_t)
+        self.assertTrue(np.all(np.abs(y_ref-self.sig_out)/self.sig_out < 1e-3))
+
+    def test_sinewave_upsample(self):
+        fs = np.pi / 8
+        n = np.arange(0, 128)
+        s_inp = np.sin(fs * n)
+        self.do_resample(s_inp, 1.0)
+
+        finterp = interpolate.InterpolatedUnivariateSpline(n, s_inp, k=3)
+        y_ref = finterp(self.sig_out_t)
+        self.assertTrue(np.all(np.abs(y_ref-self.sig_out)/self.sig_out < 1e-3))
+        plt.plot(n, s_inp)
+        plt.plot(self.sig_out_t, self.sig_out, 'o-')
+        plt.plot(self.sig_out_t, y_ref, '+')
+        plt.grid(True)
+        plt.show()
 
 if __name__ == '__main__':
     unittest.main()

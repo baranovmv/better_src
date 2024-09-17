@@ -28,6 +28,7 @@ SRC_API src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, unsig
 SRC_API void src_set_scale(src_t * src, float coeff);
 SRC_API int src_push_samples(src_t *src, float *samples, unsigned int nsamples);
 SRC_API unsigned int src_pop_samples(src_t *src, float *out, unsigned int max_out);
+SRC_API float src_left_to_process(const src_t * src);
 SRC_API void src_close(src_t * src);
 
 #ifdef __cplusplus
