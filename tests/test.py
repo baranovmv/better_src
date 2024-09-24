@@ -46,8 +46,10 @@ class TestSrcMethods(unittest.TestCase):
                 if navailable == 0:
                     break
                 t = tgap - dt * navailable
-                self.sig_out = np.concat((self.sig_out, np.array([input_frame[i] for i in range(navailable)])))
-                self.sig_out_t = np.concat((self.sig_out_t, np.arange(t, t + dt * navailable, dt),))
+                sig_frame = np.array([input_frame[i] for i in range(navailable)])
+                self.sig_out = np.concat((self.sig_out, sig_frame))
+                sig_frame_t = np.arange(0,dt * navailable, dt) + t
+                self.sig_out_t = np.concat((self.sig_out_t, sig_frame_t,))
                 t = self.sig_out_t[-1] + dt
 
     def test_linear(self):
@@ -73,11 +75,12 @@ class TestSrcMethods(unittest.TestCase):
 
     def test_sinewave_upsample(self):
         fs = np.pi / 8
-        n = np.arange(0, 128)
+        n = np.arange(0, 1024*30)
         s_inp = np.sin(fs * n)
-        self.do_resample(s_inp, 1.0)
+        self.do_resample(s_inp, 1.7)
 
         finterp = interpolate.InterpolatedUnivariateSpline(n, s_inp, k=3)
+        finterp = lambda t: np.sin(fs*t)
         y_ref = finterp(self.sig_out_t)
         self.assertTrue(np.all(np.abs(y_ref-self.sig_out)/self.sig_out < 1e-3))
         plt.plot(n, s_inp)

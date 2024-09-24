@@ -18,7 +18,7 @@ public:
     , n_channels_(n_channels)
     , win_len_(win_len)
     , win_len_effective_(win_len_)
-    , win_len_effective_half_(float(win_len_effective_/2 + 1))
+    , win_len_effective_half_(sample_t(win_len_effective_/2 + 1))
     , win_len_max_(3 * win_len)
     , middle_i_(win_len_max_ * n_channels_)
     , sinc_center_i_(win_len * window_interp_ / 2)
@@ -44,7 +44,7 @@ public:
             valid_ = false;
             return;
         }
-        if (win_len % 2 != 1 || win_len < 5) {
+        if (win_len < 5) {
             // TODO: error explanation.
             valid_ = false;
             return;
@@ -55,7 +55,7 @@ public:
 
     bool set_scaling(size_t input_sample_rate,
                      size_t output_sample_rate,
-                     float multiplier = 1.f)
+                     sample_t multiplier = 1.f)
     {
         if (input_sample_rate == 0){
             input_sample_rate = in_fs_;
@@ -66,7 +66,7 @@ public:
         in_fs_ = input_sample_rate;
         out_fs_ = output_sample_rate;
 
-        const float new_scaling = float(input_sample_rate) / float(output_sample_rate) * multiplier;
+        const sample_t new_scaling = sample_t(input_sample_rate) / sample_t(output_sample_rate) * multiplier;
 
         // Filter out obviously invalid values.win_len_effective_half_
         if (new_scaling <= 0 || new_scaling > 3) {
@@ -114,7 +114,7 @@ public:
             // |■■■■□□□□□□□□□□□■■■■ ■■■■□□□□□□□□□□□□□□□■■■■|
             new_delay_line_i = (delay_line_i_ + in_n) - middle_i_;
             std::copy(in, in + middle_i_ - delay_line_i_, delay_line_.begin() + middle_i_ + delay_line_i_);
-            std::copy(in + middle_i_ - delay_line_i_, in + new_delay_line_i, delay_line_.begin());
+            std::copy(in + middle_i_ - delay_line_i_, in + in_n, delay_line_.begin());
         }
 
         delay_line_i_ =  new_delay_line_i;
@@ -153,12 +153,9 @@ public:
         //        dl_ln_processed_i_       dl_ln_processed_i_ + win_effective          delay_line_i_
         double sinc_t_integral = 0;
         size_t out_i = 0;
-        while (available() >= win_len_effective_ * n_channels_
+        while (available() > win_len_effective_ * n_channels_
                && out_i < out_sz) {
-            sample_t sinc_t_offset = 1.f - (sample_t)modf(t_win_begin_, &sinc_t_integral);
-            if (sinc_t_offset > 1.f - sinc_unity_/2.) {
-                sinc_t_offset = 0.f;
-            }
+            sample_t sinc_t_offset = (sample_t)delay_line_processed_i_ - t_win_begin_;
 
             std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
             std::fill(accum_low_.begin(), accum_low_.end(), 0.f);
@@ -169,11 +166,8 @@ public:
             for (auto idx = delay_line_processed_i_;
                 idx <= delay_line_processed_i_ + win_len_effective_ * n_channels_;
                 idx += n_channels_) {
-                assert(sinc_idx <= sinc_center_i_ * 2);
-                for (auto nchan = 0; nchan < n_channels_; nchan++) {
-                    accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
-                    accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx+1];
-                }
+                assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
+                do_mac_(sinc_idx, idx);
                 sinc_idx += window_interp_;
             }
             for (size_t nchan = 0; nchan < n_channels_; nchan++) {
@@ -201,7 +195,7 @@ public:
 
     float left_2_process() const
     {
-        return dist_<sample_t>(t_, sample_t (delay_line_i_));
+        return dist_<float>(t_, float (delay_line_i_));
     }
     
 private:
@@ -217,20 +211,22 @@ private:
     const size_t n_channels_;
     const size_t win_len_;
     size_t win_len_effective_;
-    float win_len_effective_half_; // Approximateion of win_len_effective_ / 2.
+    sample_t win_len_effective_half_; // Approximateion of win_len_effective_ / 2.
     const size_t win_len_max_;
     const size_t middle_i_;
     static constexpr size_t window_interp_{1 << SINC_INTERP_NBITS};
-    static constexpr float sinc_unity_{1.0 / (double)window_interp_};
+    static constexpr sample_t sinc_unity_{1.0 / (double)window_interp_};
     size_t sinc_center_i_;
-    static constexpr float cutoff_freq_{0.9f}; // TODO: return to 0.9f
+    static constexpr sample_t cutoff_freq_{0.9f}; // TODO: return to 0.9f
 
     // Position of current output sample in terms of input samples (increments by 1/scaling), varies in [0, win_len_).
     float t_;
     float t_win_begin_;
+    sample_t t_;
+    sample_t t_win_begin_;
     // Increment of t_ -- 1/scaling.
-    float dt_;
-    float sinc_step_;
+    sample_t dt_;
+    sample_t sinc_step_;
 
     std::vector<sample_t> delay_line_;
 
@@ -251,7 +247,7 @@ private:
 
     inline static constexpr sample_t calc_sinc_(const sample_t x)
     {
-        return static_cast<sample_t>(std::sin(M_PI * x) / M_PI) / x;
+        return x == 0 ? 1.f : static_cast<sample_t>(std::sin(M_PI * x) / M_PI) / x;
     }
 
     inline static constexpr sample_t hann_win_(const size_t idx, const size_t len)
@@ -263,7 +259,7 @@ private:
 
     bool fill_sinc_(const sample_t sinc_step)
     {
-        win_len_effective_half_ = (float)win_len_ / 2.f / sinc_step_;
+        win_len_effective_half_ = (sample_t)win_len_ / 2.f / sinc_step_;
 
         if (win_len_effective_ * 2 > win_len_max_) {
             // TODO: error explanation
@@ -273,7 +269,7 @@ private:
         sinc_center_i_ = size_t(ceilf(win_len_effective_half_ * window_interp_));
         win_len_effective_half_ = sample_t(sinc_center_i_) / window_interp_;
         win_len_effective_ = sinc_center_i_ * 2 / window_interp_;
-        if (sinc_table_.size() < win_len_effective_ * window_interp_) {
+        if (sinc_table_.size() < (win_len_effective_ + 2) * window_interp_) {
             // TODO: error explanation
             return false;
         }
@@ -288,8 +284,32 @@ private:
                     calc_sinc_(sinc_t * sinc_step) * window * sinc_step;
             sinc_t += sinc_unity_;
         }
-        sinc_table_[sinc_center_i_ * 2] = 0;
+        for (ssize_t i = sinc_center_i_*2; i < sinc_center_i_*2 + window_interp_ ; ++i) {
+            const sample_t window = hann_win_(i, sinc_center_i_ * 2);
+            sinc_table_[i] =
+                    calc_sinc_(sinc_t * sinc_step) * window * sinc_step;
+            sinc_t += sinc_unity_;
+        }
+        std::fill(sinc_table_.begin() + sinc_center_i_*2 + window_interp_,
+                  sinc_table_.begin() + sinc_center_i_*2 + window_interp_*2, 0);
 
         return true;
+    }
+
+    inline void do_mac_(const size_t sinc_idx, const size_t idx) {
+
+        const sample_t sinc_val_low = calc_sinc_(((sample_t)sinc_idx - (sample_t)sinc_center_i_)/(sample_t)window_interp_);
+        const sample_t win_val_low = hann_win_(sinc_idx, sinc_center_i_ * 2);
+        const sample_t sinc_ref_low = sinc_val_low * win_val_low;
+        const sample_t sinc_val_high = calc_sinc_(((sample_t)sinc_idx + 1.f - (sample_t)sinc_center_i_)/(sample_t)window_interp_);
+        const sample_t win_val_high = hann_win_(sinc_idx + 1, sinc_center_i_ * 2);
+        const sample_t sinc_ref_high = sinc_val_high * win_val_high;
+
+
+
+        for (auto nchan = 0; nchan < n_channels_; nchan++) {
+            accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_ref_low;//sinc_table_[sinc_idx];
+            accum_high_[nchan] += delay_line_[idx + nchan] * sinc_ref_high;//sinc_table_[sinc_idx + 1];
+        }
     }
 };
