@@ -6,7 +6,7 @@ src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, const unsigne
     Src* imp = nullptr;
     switch (profile) {
         case SRC_PROFILE_DEFAULT:
-            imp = new Src(nchannels + 1, 90, in_fs, out_fs);
+            imp = new Src(nchannels + 1, 65, in_fs, out_fs);
             break;
         default:
             return nullptr;

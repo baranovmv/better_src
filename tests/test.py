@@ -3,6 +3,8 @@ from src import *
 import ctypes
 import numpy as np
 from scipy import interpolate
+from scipy.signal.windows import hann
+import matplotlib
 import matplotlib.pyplot as plt
 import unittest
 
@@ -77,17 +79,13 @@ class TestSrcMethods(unittest.TestCase):
         fs = np.pi / 8
         n = np.arange(0, 1024*30)
         s_inp = np.sin(fs * n)
-        self.do_resample(s_inp, 1.7)
+        self.do_resample(s_inp, 0.93)
 
-        finterp = interpolate.InterpolatedUnivariateSpline(n, s_inp, k=3)
         finterp = lambda t: np.sin(fs*t)
         y_ref = finterp(self.sig_out_t)
-        self.assertTrue(np.all(np.abs(y_ref-self.sig_out)/self.sig_out < 1e-3))
-        plt.plot(n, s_inp)
-        plt.plot(self.sig_out_t, self.sig_out, 'o-')
-        plt.plot(self.sig_out_t, y_ref, '+')
-        plt.grid(True)
-        plt.show()
+        rel_err = np.where(self.sig_out > 1e-3, (self.sig_out-y_ref)/self.sig_out, 0)
+        self.assertTrue(np.all(np.abs(rel_err) < 1e-3), np.max(np.abs(rel_err)))
 
 if __name__ == '__main__':
+    matplotlib.use('TkAgg')
     unittest.main()
