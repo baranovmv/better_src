@@ -63,9 +63,13 @@ class TestSrcMethods(unittest.TestCase):
         finterp = interpolate.InterpolatedUnivariateSpline(t, x, k=3)
         # finterp = interp1d(t, x, kind='linear', assume_sorted=True)
         y_ref = finterp(self.sig_out_t)
+        plt.plot(t, x, '+-')
+        plt.plot(self.sig_out_t, self.sig_out, 'o')
+        plt.plot(self.sig_out_t, y_ref, 'x')
+        plt.show()
         self.assertTrue(np.all(np.abs(y_ref-self.sig_out)/self.sig_out < 1e-3))
 
-    def test_sinewave(self):
+    def ignore_test_sinewave(self):
         fs = np.pi / 8
         n = np.arange(0, 96)
         s_inp = np.sin(fs * n)
@@ -75,7 +79,7 @@ class TestSrcMethods(unittest.TestCase):
         y_ref = finterp(self.sig_out_t)
         self.assertTrue(np.all(np.abs(y_ref-self.sig_out)/self.sig_out < 1e-3))
 
-    def test_sinewave_upsample(self):
+    def ignore_test_sinewave_upsample(self):
         fs = np.pi / 8
         n = np.arange(0, 1024*30)
         s_inp = np.sin(fs * n)

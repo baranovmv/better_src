@@ -4,7 +4,7 @@
 #include <ostream>
 #include <math.h>
 
-template <typename T, unsigned int FractionalBits>
+template <typename T, typename LONG_T, unsigned int FractionalBits>
 class FixedPoint
 {
 public:
@@ -12,17 +12,21 @@ public:
     : value(0)
     {}
 
-    FixedPoint(T val)
+    explicit FixedPoint(T val)
     : value(val << FractionalBits)
     {}
 
+    explicit FixedPoint(LONG_T val)
+    : value(val >> FractionalBits)
+    {}
+
     // Conversion from floating point to fixed point
-    FixedPoint(float val)
-    : value(static_cast<T>(val * (1 << FractionalBits)))
+    explicit FixedPoint(float val)
+    : value(static_cast<T>(val * (T(1) << FractionalBits)))
     {}
 
     template <unsigned int FractionalBitsN>
-    FixedPoint(const FixedPoint &rhs)
+    explicit FixedPoint(const FixedPoint &rhs)
     {
         if (FractionalBitsN > FractionalBits) {
             value = rhs.value >> (FractionalBitsN - FractionalBits);
@@ -34,7 +38,7 @@ public:
     // Conversion from fixed point to floating point
     operator float() const
     {
-        return static_cast<float>(value) / (1 << FractionalBits);
+        return static_cast<float>(value) / (T(1) << FractionalBits);
     }
 
     inline T floor() const
@@ -56,14 +60,28 @@ public:
         return FixedPoint(value + other.value);
     }
 
+    FixedPoint operator+=(const FixedPoint& other)
+    {
+        value = value + other.value;
+        return *this;
+    }
+
     FixedPoint operator-(const FixedPoint& other) const
     {
         return FixedPoint(value - other.value);
     }
 
+    FixedPoint operator-=(const FixedPoint& other)
+    {
+        value = value - other.value;
+        return *this;
+    }
+
     FixedPoint operator*(const FixedPoint& other) const
     {
-        return FixedPoint((static_cast<T>(value) * other.value) >> FractionalBits);
+        const LONG_T accum = LONG_T(value) * LONG_T(other.value);
+        const auto result = FixedPoint(accum);
+        return result;
     }
 
     FixedPoint operator/(const FixedPoint& other) const
@@ -78,13 +96,13 @@ public:
     }
 
     template<unsigned int FractionalBitsM>
-    FixedPoint<T, FractionalBitsM> scaledown_resolution(float &residual)
+    FixedPoint<T, LONG_T, FractionalBitsM> scaledown_resolution(float &residual)
     {
         static_assert(FractionalBitsM < FractionalBits);
         static constexpr size_t residual_bitlen = FractionalBits - FractionalBitsM;
-        static constexpr size_t residual_mask = (1 << residual_bitlen) - 1;
-        residual = static_cast<float>(value & residual_mask) / (1 << residual_bitlen);
-        return FixedPoint<T, FractionalBitsM>(*this);
+        static constexpr size_t residual_mask = (T(1) << residual_bitlen) - 1;
+        residual = static_cast<float>(value & residual_mask) / (T(1) << residual_bitlen);
+        return FixedPoint<T, LONG_T, FractionalBitsM>(*this);
     }
 
     T get() const
@@ -92,16 +110,21 @@ public:
         return value;
     }
 
+    static FixedPoint<T, LONG_T, FractionalBits> convert(const T& x)
+    {
+        return FixedPoint<T, LONG_T, FractionalBits>(x);
+    }
+
     /// Does linear interpolation between two values weighted by fractional part of value only.
     float fract_linear_interp(float x1, float x2)
     {
-        const float fract = static_cast<float>(value & fract_bitmask_) / (1 << FractionalBits);
+        const float fract = static_cast<float>(value & fract_bitmask_) / (T(1) << FractionalBits);
         return (x2 - x1) * fract + x1;
     }
 
 private:
     T value;
-    static constexpr T fract_bitmask_ = (1 << FractionalBits) - 1;
+    static constexpr T fract_bitmask_ = (T(1) << FractionalBits) - 1;
 };
 
 #endif //SRC_FIXEDPOINT_H
