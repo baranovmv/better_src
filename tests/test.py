@@ -96,6 +96,31 @@ class TestSrcMethods(unittest.TestCase):
         rel_err = np.where(self.sig_out > 1e-3, (self.sig_out-y_ref)/self.sig_out, 0)
         self.assertTrue(np.all(np.abs(rel_err) < 1e-3), np.max(np.abs(rel_err)))
 
+    def ignore_test_sinewave_downsample(self):
+        time.sleep(0.5)
+        fs = np.pi / 8
+        n = np.arange(0, 128)
+        s_inp = np.sin(fs * n)
+        self.do_resample(s_inp, 1.07)
+
+        finterp = lambda t: np.sin(fs*t)
+        y_ref = finterp(self.sig_out_t)
+        rel_err = np.where(self.sig_out > 1e-3, (self.sig_out-y_ref)/self.sig_out, 0)
+
+        self.assertTrue(np.all(np.abs(rel_err) < 1e-3), np.max(np.abs(rel_err)))
+
+    def test_wgn_plot(self):
+        # n = np.arange(0, 1024*30)
+        s_inp = np.random.randn(1024*100)
+        coef = 0.93
+        self.do_resample(s_inp, coef)
+
+        plt.plot(*spectrum.compute_average_spectrum(s_inp), label="Input")
+        plt.plot(*spectrum.compute_average_spectrum(self.sig_out, fs=48000/coef), label="Output")
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
 if __name__ == '__main__':
     matplotlib.use('TkAgg')
     unittest.main()
