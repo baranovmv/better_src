@@ -12,9 +12,7 @@ public:
     : value(0)
     {}
 
-    explicit FixedPoint(T val)
-    : value(val << FractionalBits)
-    {}
+    explicit FixedPoint(T val) = delete;
 
     explicit FixedPoint(LONG_T val)
     : value(val >> FractionalBits)
@@ -33,6 +31,20 @@ public:
         } else {
             value = rhs.value << (FractionalBits - FractionalBitsN);
         }
+    }
+
+    static FixedPoint FromInteger(const T val)
+    {
+        FixedPoint result;
+        result.value = val << FractionalBits;
+        return result;
+    }
+
+    static FixedPoint FromInnerval(const T val)
+    {
+        FixedPoint result;
+        result.value = val;
+        return result;
     }
 
     // Conversion from fixed point to floating point
@@ -68,7 +80,9 @@ public:
 
     FixedPoint operator-(const FixedPoint& other) const
     {
-        return FixedPoint(value - other.value);
+        FixedPoint result;
+        result.value = value - other.value;
+        return result;
     }
 
     FixedPoint operator-=(const FixedPoint& other)

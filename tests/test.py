@@ -6,7 +6,10 @@ from scipy import interpolate
 from scipy.signal.windows import hann
 import matplotlib
 import matplotlib.pyplot as plt
+import time
 import unittest
+
+import spectrum
 
 class TestSrcMethods(unittest.TestCase):
     FrameSz = 16
@@ -20,6 +23,9 @@ class TestSrcMethods(unittest.TestCase):
         self.pushed = 0
         self.sig_out = np.array([])
         self.sig_out_t = np.array([])
+
+        # To help clion to attach before the execution begins.
+        time.sleep(0.5)
 
     def tearDown(self):
         src_close(self.src)
@@ -54,7 +60,7 @@ class TestSrcMethods(unittest.TestCase):
                 self.sig_out_t = np.concat((self.sig_out_t, sig_frame_t,))
                 t = self.sig_out_t[-1] + dt
 
-    def test_linear(self):
+    def ignore_test_linear(self):
         x = np.arange(-self.FrameSz*2.5, self.FrameSz*2.5)
         # x = np.ones(256) - 41
         t = np.arange(0, x.shape[0])

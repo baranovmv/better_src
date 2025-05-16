@@ -1,6 +1,8 @@
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 #include "fixedpoint.h"
@@ -10,7 +12,7 @@ typedef float sample_t;
 class Src
 {
 public:
-    Src(size_t n_channels, const size_t win_len, const size_t in_fs, const size_t out_fs)
+    Src(const size_t n_channels, const size_t win_len, const size_t in_fs, const size_t out_fs)
     : valid_(true)
     , started_(false)
     , in_fs_(in_fs)
@@ -22,10 +24,10 @@ public:
     , win_len_max_(3 * win_len)
     , middle_i_(win_len_max_ * n_channels_)
     , sinc_center_i_(win_len * window_interp_ / 2)
-    , t_(uint32_t(0))
-    , t_counter_(uint32_t(0))
-    , t_win_begin_(uint32_t(0))
-    , dt_(uint32_t(0))
+    , t_(time_t::FromInteger(0))
+    , t_counter_(time_t::FromInteger(0))
+    , t_win_begin_(time_t::FromInteger(0))
+    , dt_(time_t::FromInteger(0))
     , sinc_step_(0)
     , delay_line_(win_len_max_ * 2 * n_channels_)
     , sinc_table_(4 * win_len_ * window_interp_ + 1)
@@ -81,7 +83,7 @@ public:
         if (!started_) {
             t_ = win_len_effective_half_;
             t_counter_ = t_;
-            t_win_begin_ = time_t(0u);
+            t_win_begin_ = time_t::FromInteger(0u);
             delay_line_processed_i_ = 0;
         } else {
             t_win_begin_ = t_ - win_len_effective_half_;
@@ -109,14 +111,14 @@ public:
             //  ↓                  ↓                      ↓
             // |□□□□■■■■■■■■□□□□□□□ □□□□■■■■■■■■□□□□□□□□□□□|
             new_delay_line_i = delay_line_i_ + in_n;
-            std::copy(in, in + in_n, delay_line_.begin() + middle_i_ + delay_line_i_);
+            std::copy_n(in, in_n, delay_line_.begin() + middle_i_ + delay_line_i_);
         } else {
             //  0               middle                   end
             //  ↓                  ↓                      ↓
             // |■■■■□□□□□□□□□□□■■■■ ■■■■□□□□□□□□□□□□□□□■■■■|
             new_delay_line_i = (delay_line_i_ + in_n) - middle_i_;
-            std::copy(in, in + middle_i_ - delay_line_i_, delay_line_.begin() + middle_i_ + delay_line_i_);
-            std::copy(in + middle_i_ - delay_line_i_, in + in_n, delay_line_.begin());
+            std::copy_n(in, middle_i_ - delay_line_i_, delay_line_.begin() + middle_i_ + delay_line_i_);
+            std::copy_n(in + middle_i_ - delay_line_i_, in_n, delay_line_.begin());
         }
 
         delay_line_i_ =  new_delay_line_i;
@@ -156,7 +158,8 @@ public:
         size_t out_i = 0;
         while (available() > win_len_effective_ * n_channels_
                && out_i < out_sz) {
-            sinc_t sinc_t_offset = sinc_t(time_t(uint32_t(delay_line_processed_i_)) - t_win_begin_);
+            const auto offset = time_t::FromInteger(delay_line_processed_i_ / n_channels_) - t_win_begin_;
+            sinc_t sinc_t_offset = sinc_t::FromInnerval(offset.get());
 
             std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
             std::fill(accum_low_.begin(), accum_low_.end(), 0.f);
@@ -223,7 +226,7 @@ public:
 #endif
 
             for (size_t nchan = 0; nchan < n_channels_; nchan++) {
-                out[out_i++] = sinc_t_offset.fract_linear_interp(accum_high_[nchan], accum_low_[nchan]);
+                out[out_i++] = sinc_t_offset.fract_linear_interp(accum_low_[nchan], accum_high_[nchan]);
             }
 
             t_win_begin_ += dt_;
@@ -233,10 +236,10 @@ public:
             delay_line_processed_i_ = t_win_begin_.ceil();
             counter_++;
         }
-        t_ += time_t(uint32_t(out_i / n_channels_)) * dt_;
-        t_counter_ += time_t(uint32_t(out_i)) * dt_;
-        while (t_ >= time_t(uint32_t(middle_i_ / n_channels_))) {
-            t_ -= time_t(uint32_t(middle_i_ / n_channels_));
+        t_ += time_t::FromInteger(out_i / n_channels_) * dt_;
+        t_counter_ += time_t::FromInteger(out_i) * dt_;
+        while (t_ >= time_t::FromInteger(middle_i_ / n_channels_)) {
+            t_ -= time_t::FromInteger(middle_i_ / n_channels_);
         }
 
         return out_i;
