@@ -65,7 +65,8 @@ add_link_options(
 #if(CMAKE_BUILD_TYPE STREQUAL Debug)
   add_compile_options(
     -Werror
-    -O0
+    -O3
+    -march=tigerlake
     -ggdb
     -funwind-tables
     -fno-omit-frame-pointer

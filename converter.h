@@ -233,7 +233,7 @@ public:
             if (t_win_begin_ >= sample_t (middle_i_ / n_channels_)) {
                 t_win_begin_ -= time_t(sample_t(middle_i_ / n_channels_));
             }
-            delay_line_processed_i_ = t_win_begin_.ceil();
+            delay_line_processed_i_ = t_win_begin_.ceil() * time_t::FromInteger(n_channels_);
             counter_++;
         }
         t_ += time_t::FromInteger(out_i / n_channels_) * dt_;
@@ -274,7 +274,7 @@ private:
     static constexpr size_t window_interp_{1 << SINC_INTERP_NBITS};
     static constexpr sample_t sinc_unity_{1.f / (sample_t)window_interp_};
     size_t sinc_center_i_;
-    static constexpr sample_t cutoff_freq_{1.0f}; // TODO: return to 0.9f
+    static constexpr sample_t cutoff_freq_{0.9f};
 
     // Position of current output sample in terms of input samples (increments by 1/scaling), varies in [0, win_len_).
     time_t t_;
@@ -332,17 +332,18 @@ private:
         }
         sample_t sinc_idx = sinc_unity_;
 
-        sinc_table_[sinc_center_i_] = 1.f;
+        sinc_table_[sinc_center_i_] = sinc_step_;
         for (ssize_t i = 1; i < sinc_center_i_; ++i) {
+            const auto sinc_val = calc_sinc_(sinc_idx * sinc_step) * sinc_step_;
             const sample_t window = hann_win_(sinc_center_i_ + i, sinc_center_i_ * 2);
             sinc_table_[sinc_center_i_ - i] = sinc_table_[sinc_center_i_ + i] =
-                    calc_sinc_(sinc_idx / sinc_step) * window;
+                     sinc_val * window;
             sinc_idx += sinc_unity_;
         }
         for (ssize_t i = sinc_center_i_*2; i < sinc_center_i_*2 + window_interp_ ; ++i) {
             const sample_t window = hann_win_(i, sinc_center_i_ * 2);
             sinc_table_[i] =
-                    calc_sinc_(sinc_idx / sinc_step) * window;
+                    calc_sinc_(sinc_idx * sinc_step) *  sinc_step_ * window;
             sinc_idx += sinc_unity_;
         }
         std::fill(sinc_table_.begin() + sinc_center_i_*2 + window_interp_,
