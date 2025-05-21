@@ -252,7 +252,7 @@ public:
 
     float left_2_process() const
     {
-        return dist_<float>(t_, float (delay_line_i_));
+        return dist_<float>(t_, float (delay_line_i_ / n_channels_));
     }
 
 private:
