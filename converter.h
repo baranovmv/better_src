@@ -6,43 +6,46 @@
 #include <vector>
 
 #include "fixedpoint.h"
+#include "SrcInterface.h"
 
 typedef float sample_t;
 
-class Src
+template <size_t N_CHANNELS>
+class Src final : public ISrc
 {
 public:
-    Src(const size_t n_channels, const size_t win_len, const size_t in_fs, const size_t out_fs)
+    Src(const size_t win_len, const size_t in_fs, const size_t out_fs)
     : valid_(true)
     , started_(false)
     , in_fs_(in_fs)
     , out_fs_(out_fs)
-    , n_channels_(n_channels)
     , win_len_(win_len)
     , win_len_effective_(win_len_)
     , win_len_effective_half_(float(win_len_effective_/2 + 1))
     , win_len_max_(3 * win_len)
-    , middle_i_(win_len_max_ * n_channels_)
+    , middle_i_(win_len_max_ * N_CHANNELS)
     , sinc_center_i_(win_len * window_interp_ / 2)
     , t_(time_t::FromInteger(0))
     , t_counter_(time_t::FromInteger(0))
     , t_win_begin_(time_t::FromInteger(0))
     , dt_(time_t::FromInteger(0))
     , sinc_step_(0)
-    , delay_line_(win_len_max_ * 2 * n_channels_)
+    , delay_line_(win_len_max_ * 2 * N_CHANNELS)
     , sinc_table_(4 * win_len_ * window_interp_ + 1)
     , delay_line_i_(0)
     , delay_line_processed_i_(0)
-    , accum_low_(n_channels_)
-    , accum_high_(n_channels_)
+    , accum_low_(N_CHANNELS)
+    , accum_high_(N_CHANNELS)
     {
+        static_assert(N_CHANNELS > 0 && N_CHANNELS <= 128, "n_channels must be between 1 and 128");
+
         if (win_len >= (1 << WINLEN_BITS)) {
             // TODO: error explanation.
             valid_ = false;
             return;
         }
 
-        if (n_channels_ == 0) {
+        if (N_CHANNELS == 0) {
             // TODO: error explanation.
             valid_ = false;
             return;
@@ -58,7 +61,7 @@ public:
 
     bool set_scaling(size_t input_sample_rate,
                      size_t output_sample_rate,
-                     sample_t multiplier = 1.f)
+                     float multiplier = 1.f) override
     {
         if (input_sample_rate == 0){
             input_sample_rate = in_fs_;
@@ -87,38 +90,39 @@ public:
             delay_line_processed_i_ = 0;
         } else {
             t_win_begin_ = t_ - win_len_effective_half_;
-            delay_line_processed_i_ = size_t(ceil(t_win_begin_)) * n_channels_;
+            delay_line_processed_i_ = size_t(ceil(t_win_begin_)) * N_CHANNELS;
         }
 
         return valid_;
     }
 
-    bool push(const sample_t *in, const size_t in_n)
+    bool push(const void *in, const size_t in_n) override
     {
+        const sample_t *in_samples = (const sample_t *)in;
         if (available() == middle_i_ - 1) {
             // TODO: error explanation.
             return false;
         }
-        if (in_n % n_channels_ != 0) {
+        if (in_n % N_CHANNELS != 0) {
             // TODO: error explanation.
             return 0;
         }
 
         size_t new_delay_line_i;
-        std::copy(in, in + in_n, delay_line_.begin() + delay_line_i_);
+        std::copy(in_samples, in_samples + in_n, delay_line_.begin() + delay_line_i_);
         if (middle_i_ >= delay_line_i_ + in_n) {
             //  0               middle                   end
             //  ↓                  ↓                      ↓
             // |□□□□■■■■■■■■□□□□□□□ □□□□■■■■■■■■□□□□□□□□□□□|
             new_delay_line_i = delay_line_i_ + in_n;
-            std::copy_n(in, in_n, delay_line_.begin() + middle_i_ + delay_line_i_);
+            std::copy_n(in_samples, in_n, delay_line_.begin() + middle_i_ + delay_line_i_);
         } else {
             //  0               middle                   end
             //  ↓                  ↓                      ↓
             // |■■■■□□□□□□□□□□□■■■■ ■■■■□□□□□□□□□□□□□□□■■■■|
             new_delay_line_i = (delay_line_i_ + in_n) - middle_i_;
-            std::copy_n(in, middle_i_ - delay_line_i_, delay_line_.begin() + middle_i_ + delay_line_i_);
-            std::copy_n(in + middle_i_ - delay_line_i_, in_n, delay_line_.begin());
+            std::copy_n(in_samples, middle_i_ - delay_line_i_, delay_line_.begin() + middle_i_ + delay_line_i_);
+            std::copy_n(in_samples + middle_i_ - delay_line_i_, in_n, delay_line_.begin());
         }
 
         delay_line_i_ =  new_delay_line_i;
@@ -131,17 +135,18 @@ public:
         return dist_(delay_line_processed_i_, delay_line_i_);
     }
 
-    size_t resample(sample_t *out, const size_t out_sz)
+    size_t resample(void *out, const size_t out_sz) override
     {
-        if (!started_ && (delay_line_i_ / n_channels_ < win_len_effective_)) {
+        sample_t *out_samples = (sample_t *)out;
+        if (!started_ && (delay_line_i_ / N_CHANNELS < win_len_effective_)) {
             return 0;
         } else {
             started_ = true;
         }
-        if (available() < win_len_effective_ * n_channels_) {
+        if (available() < win_len_effective_ * N_CHANNELS) {
             return 0;
         }
-        if (out_sz % n_channels_ != 0) {
+        if (out_sz % N_CHANNELS != 0) {
             // TODO: error explanation.
             return 0;
         }
@@ -156,9 +161,9 @@ public:
         // |             ↑                               ↑                                ↑
         //        dl_ln_processed_i_       dl_ln_processed_i_ + win_effective          delay_line_i_
         size_t out_i = 0;
-        while (available() > win_len_effective_ * n_channels_
+        while (available() > win_len_effective_ * N_CHANNELS
                && out_i < out_sz) {
-            const auto offset = time_t::FromInteger(delay_line_processed_i_ / n_channels_) - t_win_begin_;
+            const auto offset = time_t::FromInteger(delay_line_processed_i_ / N_CHANNELS) - t_win_begin_;
             sinc_t sinc_t_offset = sinc_t::FromInnerval(offset.get());
 
             std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
@@ -167,8 +172,8 @@ public:
             auto sinc_idx = sinc_t_offset.floor();
 #if 1
             for (auto idx = delay_line_processed_i_;
-                idx <= delay_line_processed_i_ + win_len_effective_ * n_channels_;
-                idx += n_channels_) {
+                idx <= delay_line_processed_i_ + win_len_effective_ * N_CHANNELS;
+                idx += N_CHANNELS) {
                 assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
                 do_mac_(sinc_idx, idx);
                 sinc_idx += window_interp_;
@@ -225,34 +230,34 @@ public:
                 do_mac_(sinc_idx, idx_bgn);
 #endif
 
-            for (size_t nchan = 0; nchan < n_channels_; nchan++) {
-                out[out_i++] = sinc_t_offset.fract_linear_interp(accum_low_[nchan], accum_high_[nchan]);
+            for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
+                out_samples[out_i++] = sinc_t_offset.fract_linear_interp(accum_low_[nchan], accum_high_[nchan]);
             }
 
             t_win_begin_ += dt_;
-            if (t_win_begin_ >= sample_t (middle_i_ / n_channels_)) {
-                t_win_begin_ -= time_t(sample_t(middle_i_ / n_channels_));
+            if (t_win_begin_ >= sample_t (middle_i_ / N_CHANNELS)) {
+                t_win_begin_ -= time_t(sample_t(middle_i_ / N_CHANNELS));
             }
-            delay_line_processed_i_ = t_win_begin_.ceil() * time_t::FromInteger(n_channels_);
+            delay_line_processed_i_ = t_win_begin_.ceil() * time_t::FromInteger(N_CHANNELS);
             counter_++;
         }
-        t_ += time_t::FromInteger(out_i / n_channels_) * dt_;
+        t_ += time_t::FromInteger(out_i / N_CHANNELS) * dt_;
         t_counter_ += time_t::FromInteger(out_i) * dt_;
-        while (t_ >= time_t::FromInteger(middle_i_ / n_channels_)) {
-            t_ -= time_t::FromInteger(middle_i_ / n_channels_);
+        while (t_ >= time_t::FromInteger(middle_i_ / N_CHANNELS)) {
+            t_ -= time_t::FromInteger(middle_i_ / N_CHANNELS);
         }
 
         return out_i;
     }
 
-    bool valid() const
+    bool valid() const override
     {
         return valid_;
     }
 
-    float left_2_process() const
+    float left_2_process() const override
     {
-        return dist_<float>(t_, float (delay_line_i_ / n_channels_));
+        return dist_<float>(t_, float (delay_line_i_ / N_CHANNELS));
     }
 
 private:
@@ -265,7 +270,6 @@ private:
     bool started_;
     size_t in_fs_;
     size_t out_fs_;
-    const size_t n_channels_;
     const size_t win_len_;
     size_t win_len_effective_;
     time_t win_len_effective_half_; // Approximateion of win_len_effective_ / 2.
@@ -282,7 +286,7 @@ private:
     time_t t_win_begin_;
     // Increment of t_ -- 1/scaling.
     time_t dt_;
-    sample_t sinc_step_;
+    float sinc_step_;
 
     std::vector<sample_t> delay_line_;
 
@@ -316,7 +320,7 @@ private:
 
     bool fill_sinc_(const sample_t sinc_step)
     {
-        win_len_effective_half_ = time_t(float(win_len_) / 2.f / sinc_step_);
+        win_len_effective_half_ = time_t(float(win_len_) / 2.f / sinc_step);
 
         if (win_len_effective_ * 2 > win_len_max_) {
             // TODO: error explanation
@@ -332,9 +336,9 @@ private:
         }
         sample_t sinc_idx = sinc_unity_;
 
-        sinc_table_[sinc_center_i_] = sinc_step_;
+        sinc_table_[sinc_center_i_] = sinc_step;
         for (ssize_t i = 1; i < sinc_center_i_; ++i) {
-            const auto sinc_val = calc_sinc_(sinc_idx * sinc_step) * sinc_step_;
+            const auto sinc_val = calc_sinc_(sinc_idx * sinc_step) * sinc_step;
             const sample_t window = hann_win_(sinc_center_i_ + i, sinc_center_i_ * 2);
             sinc_table_[sinc_center_i_ - i] = sinc_table_[sinc_center_i_ + i] =
                      sinc_val * window;
@@ -343,7 +347,7 @@ private:
         for (ssize_t i = sinc_center_i_*2; i < sinc_center_i_*2 + window_interp_ ; ++i) {
             const sample_t window = hann_win_(i, sinc_center_i_ * 2);
             sinc_table_[i] =
-                    calc_sinc_(sinc_idx * sinc_step) *  sinc_step_ * window;
+                    calc_sinc_(sinc_idx * sinc_step) *  sinc_step * window;
             sinc_idx += sinc_unity_;
         }
         std::fill(sinc_table_.begin() + sinc_center_i_*2 + window_interp_,
@@ -353,7 +357,7 @@ private:
     }
 
     inline void do_mac_(const size_t sinc_idx, const size_t idx) {
-        for (auto nchan = 0; nchan < n_channels_; nchan++) {
+        for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
             accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
             accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
         }
