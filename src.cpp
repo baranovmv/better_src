@@ -4,9 +4,19 @@
 
 #include "SrcFactory.h"
 
-src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, const unsigned int in_fs, const unsigned int out_fs)
+src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, SrcSampleType sample_type,
+    const unsigned int in_fs, const unsigned int out_fs)
 {
-    ISrc* imp = SrcFactory::create(nchannels + 1, 65, in_fs, out_fs);
+    SAMPLE_TYPE sample_width = SAMPLE_TYPE::F32;
+    switch (sample_type)
+    {
+        case SrcSampleType::S8:  sample_width = SAMPLE_TYPE::S8; break;
+        case SrcSampleType::S16: sample_width = SAMPLE_TYPE::S16; break;
+        case SrcSampleType::S20: sample_width = SAMPLE_TYPE::S20; break;
+        case SrcSampleType::S24: sample_width = SAMPLE_TYPE::S24; break;
+        case SrcSampleType::F32: sample_width = SAMPLE_TYPE::F32; break;
+    }
+    ISrc* imp = SrcFactory::create(nchannels + 1, sample_width, 65, in_fs, out_fs);
 
 
     return imp->valid() ? (src_t*)imp : nullptr;

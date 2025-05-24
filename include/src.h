@@ -24,7 +24,17 @@ typedef enum
     STEREO
 } SrcNumChannels_t;
 
-SRC_API src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, unsigned int in_fs, unsigned int out_fs);
+typedef enum
+{
+    S8 =  8,
+    S16 = 16,
+    S20 = 20,
+    S24 = 24,
+    F32 = 0x80+32
+} SrcSampleType;
+
+SRC_API src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, SrcSampleType sample_type,
+    unsigned int in_fs, unsigned int out_fs);
 SRC_API void src_set_scale(src_t * src, float coeff);
 SRC_API int src_push_samples(src_t *src, float *samples, unsigned int nsamples);
 SRC_API unsigned int src_pop_samples(src_t *src, float *out, unsigned int max_out);

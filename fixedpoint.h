@@ -4,9 +4,24 @@
 #include <ostream>
 #include <math.h>
 
+template <typename TParam, typename TAccum = TParam>
+inline void do_mac(const TParam &a, const float &b, TAccum &result)
+{
+    result.value += static_cast<decltype(result.value)>(a) * static_cast<decltype(result.value)>(b);
+}
+
+template <>
+inline void do_mac<float, float> (const float &a, const float &b, float &result)
+{
+    result += a * b;
+}
+
 template <typename T, typename LONG_T, unsigned int FractionalBits>
 class FixedPoint
 {
+    template <typename TParam, typename TAccum>
+    friend void do_mac(const TParam&, const TParam&, TAccum&);
+
 public:
     FixedPoint()
     : value(0)
@@ -130,7 +145,15 @@ public:
     }
 
     /// Does linear interpolation between two values weighted by fractional part of value only.
-    float fract_linear_interp(float x1, float x2)
+    template<typename TRes, typename TAccum>
+    TRes fract_linear_interp(TAccum x1, TAccum x2)
+    {
+        const float fract = static_cast<float>(value & fract_bitmask_) / (T(1) << FractionalBits);
+        return (x2 - x1) * fract + x1;
+    }
+
+    template<>
+    float fract_linear_interp<float, float>(float x1, float x2)
     {
         const float fract = static_cast<float>(value & fract_bitmask_) / (T(1) << FractionalBits);
         return (x2 - x1) * fract + x1;

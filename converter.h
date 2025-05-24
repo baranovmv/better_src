@@ -163,8 +163,8 @@ public:
             const auto offset = time_t::FromInteger(delay_line_processed_i_ / N_CHANNELS) - t_win_begin_;
             sinc_t sinc_t_offset = sinc_t::FromInnerval(offset.get());
 
-            std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
-            std::fill(accum_low_.begin(), accum_low_.end(), 0.f);
+            std::fill(accum_high_.begin(), accum_high_.end(),   static_cast<sample_t>(0.f));
+            std::fill(accum_low_.begin(), accum_low_.end(),     static_cast<sample_t>(0.f));
 
             auto sinc_idx = sinc_t_offset.floor();
 #if 1
@@ -356,10 +356,10 @@ private:
         return true;
     }
 
-    inline void do_mac_(const size_t sinc_idx, const size_t idx) {
+    void do_mac_(const size_t sinc_idx, const size_t idx) {
         for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
-            accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
-            accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
+            do_mac<sample_t, accum_t>(delay_line_[idx + nchan], sinc_table_[sinc_idx], accum_low_[nchan]);
+            do_mac<sample_t, accum_t>(delay_line_[idx + nchan], sinc_table_[sinc_idx + 1], accum_high_[nchan]);
         }
     }
 };
