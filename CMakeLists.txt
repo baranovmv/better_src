@@ -67,6 +67,8 @@ add_link_options(
     -Werror
     -O3
     -march=tigerlake
+#    -march=core-avx2#tigerlake
+#    -march=x86-64
     -ggdb
     -funwind-tables
     -fno-omit-frame-pointer

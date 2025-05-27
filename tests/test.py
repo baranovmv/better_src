@@ -137,8 +137,8 @@ class TestSrcMethods(unittest.TestCase):
         # plt.subplot(212)
         # plt.plot(*spectrum.compute_average_spectrum(s_inp, window_size=1008, overlap=0), label="Input")
         # plt.plot(*spectrum.compute_average_spectrum(y_ref, fs=48000/coef, window_size=1024, overlap=0), label="Input")
-        # plt.plot(*spectrum.compute_average_spectrum(self.sig_out, fs=48000/coef, window_size=1024, overlap=0), label="Input")
-        # # plt.plot(*spectrum.spect(y_ref[:1024], Fs=48000/coef))
+        # # plt.plot(*spectrum.compute_average_spectrum(self.sig_out, fs=48000/coef, window_size=1024, overlap=0), label="Input")
+        # # # plt.plot(*spectrum.spect(y_ref[:1024], Fs=48000/coef))
         # plt.grid(True, alpha=0.3)
         # plt.tight_layout()
         # plt.show()
@@ -168,20 +168,20 @@ class TestSrcMethods(unittest.TestCase):
         # sinc_step_ = 0.888888896
         coef = 0.9
         time_spent = self.do_resample(s_inp, coef) * 1000
-        print(f"Time spent: {time_spent} ms")
+        # print(f"Time spent: {time_spent} ms")
 
         # x = self.sig_out[:512]
 
-        plt.subplot(211)
-        plt.plot(n, s_inp)
-        plt.plot(self.sig_out_t, self.sig_out)
-
-        plt.subplot(212)
-        plt.plot(*spectrum.compute_average_spectrum(s_inp), label="Input")
-        plt.plot(*spectrum.compute_average_spectrum(self.sig_out, fs=48000/coef), label="Output")
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.show()
+        # plt.subplot(211)
+        # plt.plot(n, s_inp)
+        # plt.plot(self.sig_out_t, self.sig_out)
+        #
+        # plt.subplot(212)
+        # plt.plot(*spectrum.compute_average_spectrum(s_inp), label="Input")
+        # plt.plot(*spectrum.compute_average_spectrum(self.sig_out, fs=48000/coef), label="Output")
+        # plt.grid(True, alpha=0.3)
+        # plt.tight_layout()
+        # plt.show()
 
 class TestSrcStereoMethods(unittest.TestCase):
     FrameSz = 16

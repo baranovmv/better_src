@@ -16,7 +16,7 @@ class SpeexResampler:
         self.nchannels = nchannels_
 
         error = ctypes.c_int()
-        self.speex_state = speex_resampler_init(self.nchannels, self.fs_in, self.fs_out, 10, error)
+        self.speex_state = speex_resampler_init(self.nchannels, self.fs_in, self.fs_out, 5, error)
 
         self.initial_out_countdown = speex_resampler_get_output_latency(self.speex_state)
         self.initial_in_latency = speex_resampler_get_input_latency(self.speex_state)
@@ -71,11 +71,12 @@ class SpeexResampler:
             start_ts = time.time()
             err = speex_resampler_process_interleaved_float(self.speex_state, frame, remaining_in, output_frame, out_len)
             time_spent = time.time() - start_ts
-            time_spent_list.append(time_spent)
+            navailable = out_len.value * self.nchannels
+            if navailable > 0:
+                    time_spent_list.append(time_spent/navailable)
 
             residual = x[remaining_in.value * self.nchannels:]
             idx += remaining_in.value * self.nchannels
-            navailable = out_len.value * self.nchannels
             if self.initial_out_countdown > 0:
                 n_samples = min(self.initial_out_countdown, out_len.value)
                 navailable -= n_samples * self.nchannels
@@ -131,7 +132,8 @@ class Src:
                 start_ts = time.time()
                 navailable = src_pop_samples(self.src, input_frame, self.FrameSz)
                 time_spent = time.time() - start_ts
-                time_spent_list.append(time_spent)
+                if navailable > 0:
+                    time_spent_list.append(time_spent/navailable)
                 # timestamp of the last sample
                 tgap = self.pushed // self.nchannels - src_left_to_process(self.src)
                 if navailable == 0:

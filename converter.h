@@ -1,4 +1,7 @@
+#include <immintrin.h>
+
 #include <algorithm>
+
 #include <cassert>
 #include <iostream>
 #include <cmath>
@@ -8,6 +11,12 @@
 
 #include "fixedpoint.h"
 #include "SrcInterface.h"
+
+static constexpr size_t WINLEN_BITS = 8; //! How many bits is enough to fit winlen_.
+static constexpr size_t SINC_INTERP_NBITS = 4;
+using ts_t = FixedPoint<uint32_t, uint64_t, 32 - WINLEN_BITS>;
+using sinc_t = FixedPoint<uint32_t, uint64_t, 32 - WINLEN_BITS - SINC_INTERP_NBITS>;
+
 
 template <size_t N_CHANNELS, typename sample_t = float, typename accum_t = sample_t>
 class Src final : public ISrc
@@ -24,10 +33,10 @@ public:
     , win_len_max_(3 * win_len)
     , middle_i_(win_len_max_ * N_CHANNELS)
     , sinc_center_i_(win_len * window_interp_ / 2)
-    , t_(time_t::FromInteger(0))
-    , t_counter_(time_t::FromInteger(0))
-    , t_win_begin_(time_t::FromInteger(0))
-    , dt_(time_t::FromInteger(0))
+    , t_(ts_t::FromInteger(0))
+    , t_counter_(ts_t::FromInteger(0))
+    , t_win_begin_(ts_t::FromInteger(0))
+    , dt_(ts_t::FromInteger(0))
     , sinc_step_(0)
     , delay_line_(win_len_max_ * 2 * N_CHANNELS)
     , sinc_table_(4 * win_len_ * window_interp_ + 1)
@@ -77,13 +86,13 @@ public:
             // TODO: error explanation.
             return false;
         }
-        dt_ = time_t(new_scaling);
+        dt_ = ts_t(new_scaling);
         sinc_step_ = cutoff_freq_ / std::max(1.f, new_scaling);
         valid_ = fill_sinc_(sinc_step_);
         if (!started_) {
             t_ = win_len_effective_half_;
             t_counter_ = t_;
-            t_win_begin_ = time_t::FromInteger(0u);
+            t_win_begin_ = ts_t::FromInteger(0u);
             delay_line_processed_i_ = 0;
         } else {
             t_win_begin_ = t_ - win_len_effective_half_;
@@ -160,21 +169,12 @@ public:
         size_t out_i = 0;
         while (available() > win_len_effective_ * N_CHANNELS
                && out_i < out_sz) {
-            const auto offset = time_t::FromInteger(delay_line_processed_i_ / N_CHANNELS) - t_win_begin_;
+            const auto offset = ts_t::FromInteger(delay_line_processed_i_ / N_CHANNELS) - t_win_begin_;
             sinc_t sinc_t_offset = sinc_t::FromInnerval(offset.get());
 
-            std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
-            std::fill(accum_low_.begin(), accum_low_.end(), 0.f);
-
-            auto sinc_idx = sinc_t_offset.floor();
 #if 1
-            for (auto idx = delay_line_processed_i_;
-                idx <= delay_line_processed_i_ + win_len_effective_ * N_CHANNELS;
-                idx += N_CHANNELS) {
-                assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
-                do_mac_(sinc_idx, idx);
-                sinc_idx += window_interp_;
-            }
+            do_mac(sinc_t_offset, &out_samples[out_i]);
+            out_i += N_CHANNELS;
 #elif 1
             if (t_counter_ >= 83.){
                 fout.flush();
@@ -227,21 +227,17 @@ public:
                 do_mac_(sinc_idx, idx_bgn);
 #endif
 
-            for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
-                out_samples[out_i++] = sinc_t_offset.fract_linear_interp(accum_low_[nchan], accum_high_[nchan]);
-            }
-
             t_win_begin_ += dt_;
             if (t_win_begin_ >= float(middle_i_ / N_CHANNELS)) {
-                t_win_begin_ -= time_t(float(middle_i_ / N_CHANNELS));
+                t_win_begin_ -= ts_t(float(middle_i_ / N_CHANNELS));
             }
-            delay_line_processed_i_ = t_win_begin_.ceil() * time_t::FromInteger(N_CHANNELS);
+            delay_line_processed_i_ = t_win_begin_.ceil() * ts_t::FromInteger(N_CHANNELS);
             counter_++;
         }
-        t_ += time_t::FromInteger(out_i / N_CHANNELS) * dt_;
-        t_counter_ += time_t::FromInteger(out_i) * dt_;
-        while (t_ >= time_t::FromInteger(middle_i_ / N_CHANNELS)) {
-            t_ -= time_t::FromInteger(middle_i_ / N_CHANNELS);
+        t_ += ts_t::FromInteger(out_i / N_CHANNELS) * dt_;
+        t_counter_ += ts_t::FromInteger(out_i) * dt_;
+        while (t_ >= ts_t::FromInteger(middle_i_ / N_CHANNELS)) {
+            t_ -= ts_t::FromInteger(middle_i_ / N_CHANNELS);
         }
 
         return out_i;
@@ -258,18 +254,13 @@ public:
     }
 
 private:
-    static constexpr size_t WINLEN_BITS = 8; //! How many bits is enough to fit winlen_.
-    static constexpr size_t SINC_INTERP_NBITS = 4;
-    using time_t = FixedPoint<uint32_t, uint64_t, 32 - WINLEN_BITS>;
-    using sinc_t = FixedPoint<uint32_t, uint64_t, 32 - WINLEN_BITS - SINC_INTERP_NBITS>;
-
     bool valid_;
     bool started_;
     size_t in_fs_;
     size_t out_fs_;
     const size_t win_len_;
     size_t win_len_effective_;
-    time_t win_len_effective_half_; // Approximateion of win_len_effective_ / 2.
+    ts_t win_len_effective_half_; // Approximateion of win_len_effective_ / 2.
     const size_t win_len_max_;
     const size_t middle_i_;
     static constexpr size_t window_interp_{1 << SINC_INTERP_NBITS};
@@ -278,11 +269,11 @@ private:
     static constexpr float cutoff_freq_{0.9f};
 
     // Position of current output sample in terms of input samples (increments by 1/scaling), varies in [0, win_len_).
-    time_t t_;
-    time_t t_counter_;
-    time_t t_win_begin_;
+    ts_t t_;
+    ts_t t_counter_;
+    ts_t t_win_begin_;
     // Increment of t_ -- 1/scaling.
-    time_t dt_;
+    ts_t dt_;
     float sinc_step_;
 
     std::vector<sample_t> delay_line_;
@@ -291,9 +282,6 @@ private:
     size_t delay_line_i_;
     // (t_ - win_len_) -- the first sample in the delay line which is still needed.
     size_t delay_line_processed_i_;
-
-    std::array<accum_t, N_CHANNELS> accum_low_;
-    std::array<accum_t, N_CHANNELS> accum_high_;
 
     size_t counter_ = 0;
 
@@ -318,7 +306,7 @@ private:
 
     bool fill_sinc_(const float sinc_step)
     {
-        win_len_effective_half_ = time_t(float(win_len_) / 2.f / sinc_step);
+        win_len_effective_half_ = ts_t(float(win_len_) / 2.f / sinc_step);
 
         if (win_len_effective_ * 2 > win_len_max_) {
             // TODO: error explanation
@@ -326,7 +314,7 @@ private:
         }
 
         sinc_center_i_ = size_t(ceilf(float(win_len_effective_half_) * window_interp_));
-        win_len_effective_half_ = time_t(float(sinc_center_i_) / window_interp_);
+        win_len_effective_half_ = ts_t(float(sinc_center_i_) / window_interp_);
         win_len_effective_ = sinc_center_i_ * 2 / window_interp_;
         if (sinc_table_.size() < (win_len_effective_ + 2) * window_interp_) {
             // TODO: error explanation
@@ -356,10 +344,123 @@ private:
         return true;
     }
 
-    inline void do_mac_(const size_t sinc_idx, const size_t idx) {
-        for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
-            accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
-            accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
+
+    void do_mac(const sinc_t sinc_t_offset, sample_t *result)
+    {
+        if constexpr (N_CHANNELS == 1) {
+            #if false &&  defined(__AVX512F__)
+                // AVX-512 optimization for N_CHANNELS == 1
+                constexpr size_t VEC_SIZE = 16; // 16 floats per __m512
+                accum_t accum_low = 0;
+                accum_t accum_high = 0;
+
+                auto sinc_idx = sinc_t_offset.floor();
+                size_t idx = delay_line_processed_i_;
+                size_t end = delay_line_processed_i_ + win_len_effective_;
+                size_t vec_end = idx + ((end - idx) / VEC_SIZE) * VEC_SIZE;
+
+                __m512 acc_low = _mm512_setzero_ps();
+                __m512 acc_high = _mm512_setzero_ps();
+
+                for (; idx + VEC_SIZE <= vec_end; idx += VEC_SIZE, sinc_idx += window_interp_ * VEC_SIZE) {
+                    // Load delay_line_ and sinc_table_ values
+                    __m512 delay = _mm512_loadu_ps(&delay_line_[idx]);
+                    __m512 sinc_l, sinc_h;
+
+                    // Gather sinc_table_ values for low and high
+                    __m512i sinc_indices = _mm512_set_epi32(
+                        sinc_idx + window_interp_ * 15,
+                        sinc_idx + window_interp_ * 14,
+                        sinc_idx + window_interp_ * 13,
+                        sinc_idx + window_interp_ * 12,
+                        sinc_idx + window_interp_ * 11,
+                        sinc_idx + window_interp_ * 10,
+                        sinc_idx + window_interp_ * 9,
+                        sinc_idx + window_interp_ * 8,
+                        sinc_idx + window_interp_ * 7,
+                        sinc_idx + window_interp_ * 6,
+                        sinc_idx + window_interp_ * 5,
+                        sinc_idx + window_interp_ * 4,
+                        sinc_idx + window_interp_ * 3,
+                        sinc_idx + window_interp_ * 2,
+                        sinc_idx + window_interp_ * 1,
+                        sinc_idx + window_interp_ * 0
+                    );
+                    __m512i sinc_indices_h = _mm512_add_epi32(sinc_indices, _mm512_set1_epi32(1));
+
+                    sinc_l = _mm512_i32gather_ps(sinc_indices, sinc_table_.data(), 4);
+                    sinc_h = _mm512_i32gather_ps(sinc_indices_h, sinc_table_.data(), 4);
+
+                    acc_low = _mm512_fmadd_ps(delay, sinc_l, acc_low);
+                    acc_high = _mm512_fmadd_ps(delay, sinc_h, acc_high);
+                }
+
+                // Horizontal sum of acc_low and acc_high
+                float tmp[16];
+                _mm512_storeu_ps(tmp, acc_low);
+                for (int i = 0; i < 16; ++i) accum_low += tmp[i];
+                _mm512_storeu_ps(tmp, acc_high);
+                for (int i = 0; i < 16; ++i) accum_high += tmp[i];
+
+                // Handle remaining elements
+                for (; idx <= end; ++idx, sinc_idx += window_interp_) {
+                    accum_low  += delay_line_[idx] * sinc_table_[sinc_idx];
+                    accum_high += delay_line_[idx] * sinc_table_[sinc_idx + 1];
+                }
+
+                *result = sinc_t_offset.fract_linear_interp(accum_low, accum_high);
+            #else
+                accum_t accum_low_odd = 0;
+                accum_t accum_high_odd = 0;
+                accum_t accum_low_even = 0;
+                accum_t accum_high_even = 0;
+
+                auto sinc_idx_odd = sinc_t_offset.floor();
+                auto sinc_idx_even = sinc_idx_odd + window_interp_;
+                auto idx = delay_line_processed_i_;
+                for (; idx < delay_line_processed_i_ + win_len_effective_; idx += 2) {
+                    assert(sinc_idx_odd <= sinc_center_i_ * 2 + window_interp_);
+                    assert(sinc_idx_even <= sinc_center_i_ * 2 + window_interp_);
+                    accum_low_odd  +=  delay_line_[idx]     * sinc_table_[sinc_idx_odd];
+                    accum_high_odd +=  delay_line_[idx]     * sinc_table_[sinc_idx_odd + 1];
+                    accum_low_even  += delay_line_[idx + 1] * sinc_table_[sinc_idx_odd + window_interp_];
+                    accum_high_even += delay_line_[idx + 1] * sinc_table_[sinc_idx_odd + window_interp_ + 1];
+                    sinc_idx_odd += window_interp_ * 2;
+                    // sinc_idx_even += window_interp_;
+                }
+                // idx -= 1;
+                // sinc_idx_odd -= window_interp_;
+                for (; idx <= delay_line_processed_i_ + win_len_effective_; idx += 1) {
+                    accum_low_odd  += delay_line_[idx] * sinc_table_[sinc_idx_odd];
+                    accum_high_odd += delay_line_[idx] * sinc_table_[sinc_idx_odd + 1];
+                    sinc_idx_odd += window_interp_;
+                }
+
+                accum_low_odd += accum_low_even;
+                accum_high_odd += accum_high_even;
+
+                *result = sinc_t_offset.fract_linear_interp(accum_low_odd, accum_high_odd);
+            #endif
+        } else {
+            std::array<accum_t, N_CHANNELS> accum_low_;
+            std::array<accum_t, N_CHANNELS> accum_high_;
+
+            std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
+            std::fill(accum_low_.begin(), accum_low_.end(), 0.f);
+
+            auto sinc_idx = sinc_t_offset.floor();
+            for (auto idx = delay_line_processed_i_; idx <= delay_line_processed_i_ + win_len_effective_ * N_CHANNELS; idx += N_CHANNELS) {
+                assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
+                for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
+                    accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
+                    accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
+                }
+                sinc_idx += window_interp_;
+            }
+
+            for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
+                *result++ = sinc_t_offset.fract_linear_interp(accum_low_[nchan], accum_high_[nchan]);
+            }
         }
     }
 };
