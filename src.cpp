@@ -6,8 +6,21 @@
 
 src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, const unsigned int in_fs, const unsigned int out_fs)
 {
-    ISrc* imp = SrcFactory::create(nchannels + 1, 65, in_fs, out_fs);
-
+    Quality q;
+    switch (profile)
+    {
+        case SRC_PROFILE_POOR:
+            q = LOW;
+            break;
+        case SRC_PROFILE_MEDIUM:
+        default:
+            q = MEDIUM;
+            break;
+        case SRC_PROFILE_GOOD:
+            q = HIGH;
+            break;
+    }
+    ISrc* imp = SrcFactory::create(nchannels + 1, q, in_fs, out_fs);
 
     return imp->valid() ? (src_t*)imp : nullptr;
 }

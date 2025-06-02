@@ -12,40 +12,42 @@
 #include "fixedpoint.h"
 #include "SrcInterface.h"
 
-static constexpr size_t WINLEN_BITS = 8; //! How many bits is enough to fit winlen_.
-static constexpr size_t SINC_INTERP_NBITS = 4;
-using ts_t = FixedPoint<uint32_t, uint64_t, 32 - WINLEN_BITS>;
-using sinc_t = FixedPoint<uint32_t, uint64_t, 32 - WINLEN_BITS - SINC_INTERP_NBITS>;
+enum Quality
+{
+    LOW,
+    MEDIUM,
+    HIGH,
+};
 
-
-template <size_t N_CHANNELS, typename sample_t = float, typename accum_t = sample_t>
+template <size_t N_CHANNELS, Quality QUALITY, typename sample_t = float, typename accum_t = sample_t>
 class Src final : public ISrc
 {
 public:
-    Src(const size_t win_len, const size_t in_fs, const size_t out_fs)
+
+
+    Src(const size_t in_fs, const size_t out_fs)
     : valid_(true)
     , started_(false)
     , in_fs_(in_fs)
     , out_fs_(out_fs)
-    , win_len_(win_len)
-    , win_len_effective_(win_len_)
+    , win_len_effective_(WIN_LEN)
     , win_len_effective_half_(float(win_len_effective_/2 + 1))
-    , win_len_max_(3 * win_len)
+    , win_len_max_(3 * WIN_LEN)
     , middle_i_(win_len_max_ * N_CHANNELS)
-    , sinc_center_i_(win_len * window_interp_ / 2)
+    , sinc_center_i_(WIN_LEN * window_interp_ / 2)
     , t_(ts_t::FromInteger(0))
     , t_counter_(ts_t::FromInteger(0))
     , t_win_begin_(ts_t::FromInteger(0))
     , dt_(ts_t::FromInteger(0))
     , sinc_step_(0)
     , delay_line_(win_len_max_ * 2 * N_CHANNELS)
-    , sinc_table_(4 * win_len_ * window_interp_ + 1)
+    , sinc_table_(4 * WIN_LEN * window_interp_ + 1)
     , delay_line_i_(0)
     , delay_line_processed_i_(0)
     {
         static_assert(N_CHANNELS > 0 && N_CHANNELS <= 128, "n_channels must be between 1 and 128");
 
-        if (win_len >= (1 << WINLEN_BITS)) {
+        if (WIN_LEN >= (1 << WINLEN_BITS)) {
             // TODO: error explanation.
             valid_ = false;
             return;
@@ -56,7 +58,7 @@ public:
             valid_ = false;
             return;
         }
-        if (win_len < 5) {
+        if (WIN_LEN < 5) {
             // TODO: error explanation.
             valid_ = false;
             return;
@@ -87,7 +89,7 @@ public:
             return false;
         }
         dt_ = ts_t(new_scaling);
-        sinc_step_ = cutoff_freq_ / std::max(1.f, new_scaling);
+        sinc_step_ = CUTOFF_FREQ / std::max(1.f, new_scaling);
         valid_ = fill_sinc_(sinc_step_);
         if (!started_) {
             t_ = win_len_effective_half_;
@@ -104,14 +106,14 @@ public:
 
     bool push(const void *in, const size_t in_n) override
     {
-        const sample_t *in_samples = (const sample_t *)in;
+        auto *in_samples = (const sample_t *)in;
         if (available() == middle_i_ - 1) {
             // TODO: error explanation.
             return false;
         }
         if (in_n % N_CHANNELS != 0) {
             // TODO: error explanation.
-            return 0;
+            return false;
         }
 
         size_t new_delay_line_i;
@@ -136,14 +138,14 @@ public:
         return true;
     }
 
-    inline size_t available() const
+    [[nodiscard]] size_t available() const
     {
         return dist_(delay_line_processed_i_, delay_line_i_);
     }
 
     size_t resample(void *out, const size_t out_sz) override
     {
-        sample_t *out_samples = (sample_t *)out;
+        auto *out_samples = (sample_t *)out;
         if (!started_ && (delay_line_i_ / N_CHANNELS < win_len_effective_)) {
             return 0;
         } else {
@@ -228,7 +230,7 @@ public:
 #endif
 
             t_win_begin_ += dt_;
-            if (t_win_begin_ >= float(middle_i_ / N_CHANNELS)) {
+            if (t_win_begin_ >= ts_t(float(middle_i_ / N_CHANNELS))) {
                 t_win_begin_ -= ts_t(float(middle_i_ / N_CHANNELS));
             }
             delay_line_processed_i_ = t_win_begin_.ceil() * ts_t::FromInteger(N_CHANNELS);
@@ -243,22 +245,85 @@ public:
         return out_i;
     }
 
-    bool valid() const override
+    [[nodiscard]] bool valid() const override
     {
         return valid_;
     }
 
-    float left_2_process() const override
+    [[nodiscard]] float left_2_process() const override
     {
         return dist_<float>(t_, float (delay_line_i_ / N_CHANNELS));
     }
 
 private:
+
+    static constexpr size_t get_winlen_bits(Quality q)
+    {
+        switch (q)
+        {
+        case LOW:
+            return 6;
+        case MEDIUM:
+            return 10;
+        case HIGH:
+        default:
+            return 10;
+        }
+    }
+
+    static constexpr size_t get_winlen(Quality q)
+    {
+        switch (q)
+        {
+        case LOW:
+            return 15;
+        case MEDIUM:
+            return 65;
+        case HIGH:
+        default:
+            return 255;
+        }
+    }
+
+    static constexpr size_t get_sinc_interp_bits(Quality q)
+    {
+        switch (q)
+        {
+        case LOW:
+        case MEDIUM:
+            return 8;
+        case HIGH:
+        default:
+            return 5;
+        }
+    }
+
+    static constexpr float get_cutoff_freq(Quality q)
+    {
+        switch (q)
+        {
+        case LOW:
+            return 0.85;
+        case MEDIUM:
+            return 0.94;
+        case HIGH:
+        default:
+            return 0.975;
+        }
+    }
+
+    //! How many bits is enough to fit winlen_.
+    static constexpr size_t WINLEN_BITS = get_winlen_bits(QUALITY);
+    static constexpr size_t WIN_LEN = get_winlen(QUALITY);
+    static constexpr size_t SINC_INTERP_NBITS = get_sinc_interp_bits(QUALITY);
+    using ts_t = FixedPoint<uint32_t, uint64_t, 32 - WINLEN_BITS>;
+    using sinc_t = FixedPoint<uint32_t, uint64_t, 32 - WINLEN_BITS - SINC_INTERP_NBITS>;
+    static constexpr float CUTOFF_FREQ = get_cutoff_freq(QUALITY);
+
     bool valid_;
     bool started_;
     size_t in_fs_;
     size_t out_fs_;
-    const size_t win_len_;
     size_t win_len_effective_;
     ts_t win_len_effective_half_; // Approximateion of win_len_effective_ / 2.
     const size_t win_len_max_;
@@ -266,7 +331,6 @@ private:
     static constexpr size_t window_interp_{1 << SINC_INTERP_NBITS};
     static constexpr float sinc_unity_{1.f / (float)window_interp_};
     size_t sinc_center_i_;
-    static constexpr float cutoff_freq_{0.9f};
 
     // Position of current output sample in terms of input samples (increments by 1/scaling), varies in [0, win_len_).
     ts_t t_;
@@ -306,7 +370,7 @@ private:
 
     bool fill_sinc_(const float sinc_step)
     {
-        win_len_effective_half_ = ts_t(float(win_len_) / 2.f / sinc_step);
+        win_len_effective_half_ = ts_t(float(WIN_LEN) / 2.f / sinc_step);
 
         if (win_len_effective_ * 2 > win_len_max_) {
             // TODO: error explanation

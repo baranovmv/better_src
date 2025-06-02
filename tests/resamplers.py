@@ -51,8 +51,6 @@ class SpeexResampler:
 
         self.sig_out = np.array([])
         self.sig_out_t = np.array([])
-        N = self.FrameSz
-        residual = []
 
         self.set_scaling(coeff)
         dt = self.fs_in / self.fs_out * coeff
@@ -61,22 +59,22 @@ class SpeexResampler:
 
         idx = 0
         while idx < sig_in.shape[0]:
-            x = residual[:self.FrameSz]
-            n_add_from_sig = self.FrameSz - len(x)
-            x.extend(sig_in[idx:idx+n_add_from_sig].tolist())
+            x = sig_in[idx:idx+self.FrameSz].tolist()
             frame = self.Frame16Type(*x)
-            remaining_in = ctypes.c_uint(self.FrameSz // self.nchannels)
+
+            in_len = ctypes.c_uint(len(x) // self.nchannels)
             out_len = ctypes.c_uint(self.FrameSz // self.nchannels)
 
             start_ts = time.time()
-            err = speex_resampler_process_interleaved_float(self.speex_state, frame, remaining_in, output_frame, out_len)
+            err = speex_resampler_process_interleaved_float(self.speex_state, frame, in_len, output_frame, out_len)
             time_spent = time.time() - start_ts
             navailable = out_len.value * self.nchannels
             if navailable > 0:
                     time_spent_list.append(time_spent/navailable)
 
-            residual = x[remaining_in.value * self.nchannels:]
-            idx += remaining_in.value * self.nchannels
+            # in_len.value now contains samples actually consumed (per-channel)
+            idx += in_len.value * self.nchannels
+
             if self.initial_out_countdown > 0:
                 n_samples = min(self.initial_out_countdown, out_len.value)
                 navailable -= n_samples * self.nchannels
@@ -105,7 +103,7 @@ class Src:
         self.coeff = coeff_
         self.nchannels = nchannels_
 
-        self.src = src_open(SRC_PROFILE_DEFAULT, self.nchannels-1,  self.fs_in, self.fs_out)
+        self.src = src_open(SRC_PROFILE_MEDIUM, self.nchannels-1,  self.fs_in, self.fs_out)
 
         self.pushed = 0
         self.sig_out = np.array([])

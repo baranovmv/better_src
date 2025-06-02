@@ -15,7 +15,9 @@ typedef struct src_t src_t;
 
 typedef enum
 {
-    SRC_PROFILE_DEFAULT,
+    SRC_PROFILE_POOR,
+    SRC_PROFILE_MEDIUM,
+    SRC_PROFILE_GOOD,
 } SrcProfile_t;
 
 typedef enum
