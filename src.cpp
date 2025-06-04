@@ -25,10 +25,10 @@ src_t * src_open(SrcProfile_t profile, SrcNumChannels_t nchannels, const unsigne
     return imp->valid() ? (src_t*)imp : nullptr;
 }
 
-void src_set_scale(src_t * src, const float coeff)
+int src_set_scale(src_t * src, const float coeff)
 {
     ISrc * imp = (ISrc*)src;
-    imp->set_scaling(0, 0, coeff);
+    return imp->set_scaling(0, 0, coeff) ? 1 : 0;
 }
 
 int src_push_samples(src_t * src, const float *samples, const unsigned int nsamples)

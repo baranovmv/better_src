@@ -17,7 +17,7 @@ class SpeexResampler:
         self.nchannels = nchannels_
 
         error = ctypes.c_int()
-        self.speex_state = speex_resampler_init(self.nchannels, self.fs_in, self.fs_out, 5, error)
+        self.speex_state = speex_resampler_init(self.nchannels, self.fs_in, self.fs_out, 4, error)
 
         self.initial_out_countdown = speex_resampler_get_output_latency(self.speex_state)
         self.initial_in_latency = speex_resampler_get_input_latency(self.speex_state)
@@ -105,6 +105,7 @@ class Src:
         self.nchannels = nchannels_
 
         self.src = src_open(SRC_PROFILE_MEDIUM, self.nchannels-1,  self.fs_in, self.fs_out)
+        assert(self.src is not None)
 
         self.pushed = 0
         self.sig_out = np.array([])
@@ -120,7 +121,7 @@ class Src:
         npad = self.FrameSz - sig_in.shape[0] % self.FrameSz
         sig_split = [np.pad(sig_in[i:i + N], (0, N - sig_in[i:i + N].shape[0])) for i in range(0, sig_in.shape[0], N)]
 
-        src_set_scale(self.src, coeff)
+        assert(src_set_scale(self.src, coeff) > 0)
         dt = self.fs_in / self.fs_out * coeff
         time_spent_list = []
 

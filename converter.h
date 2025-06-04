@@ -264,7 +264,7 @@ private:
         case LOW:
             return 6;
         case MEDIUM:
-            return 10;
+            return 8;
         case HIGH:
         default:
             return 10;
@@ -291,7 +291,7 @@ private:
         {
         case LOW:
         case MEDIUM:
-            return 8;
+            return 4;
         case HIGH:
         default:
             return 5;
@@ -372,14 +372,14 @@ private:
     {
         win_len_effective_half_ = ts_t(float(WIN_LEN) / 2.f / sinc_step);
 
+        sinc_center_i_ = size_t(ceilf(float(win_len_effective_half_) * window_interp_));
+        win_len_effective_half_ = ts_t(float(sinc_center_i_) / window_interp_);
+        win_len_effective_ = sinc_center_i_ * 2 / window_interp_;
+
         if (win_len_effective_ * 2 > win_len_max_) {
             // TODO: error explanation
             return false;
         }
-
-        sinc_center_i_ = size_t(ceilf(float(win_len_effective_half_) * window_interp_));
-        win_len_effective_half_ = ts_t(float(sinc_center_i_) / window_interp_);
-        win_len_effective_ = sinc_center_i_ * 2 / window_interp_;
         if (sinc_table_.size() < (win_len_effective_ + 2) * window_interp_) {
             // TODO: error explanation
             return false;
@@ -408,10 +408,38 @@ private:
         return true;
     }
 
+    static void cubic_coef(float frac, std::array<float, 4> &interp)
+    {
+       /* Compute interpolation coefficients. I'm not sure whether this corresponds to cubic interpolation
+       but I know it's MMSE-optimal on a sinc */
+       interp[0] =  -0.16667f*frac + 0.16667f*frac*frac*frac;
+       interp[1] = frac + 0.5f*frac*frac - 0.5f*frac*frac*frac;
+       /*interp[2] = 1.f - 0.5f*frac - frac*frac + 0.5f*frac*frac*frac;*/
+       interp[3] = -0.33333f*frac + 0.5f*frac*frac - 0.16667f*frac*frac*frac;
+       /* Just to make sure we don't have rounding problems */
+       interp[2] = 1.-interp[0]-interp[1]-interp[3];
+    }
+
+    template<int N>
+    static void lagrange_coef(float frac, std::array<float, N+1> &h)
+    {
+        // Initialize all elements to 1.0
+        h.fill(1.0);
+
+        // Compute Lagrange interpolation coefficients
+        for (int k = 0; k <= N; ++k) {
+            for (int n = 0; n <= N; ++n) {
+                if (n != k) {
+                    h[n] *= (frac - k) / (n - k);
+                }
+            }
+        }
+    }
+
 
     void do_mac(const sinc_t sinc_t_offset, sample_t *result)
     {
-        if constexpr (N_CHANNELS == 1) {
+        if constexpr (false && N_CHANNELS == 1) {
             #if false &&  defined(__AVX512F__)
                 // AVX-512 optimization for N_CHANNELS == 1
                 constexpr size_t VEC_SIZE = 16; // 16 floats per __m512
@@ -505,6 +533,79 @@ private:
 
                 *result = sinc_t_offset.fract_linear_interp(accum_low_odd, accum_high_odd);
             #endif
+        // Cubic interpolation between accumulators
+        } else if (true) {
+            std::array<accum_t, N_CHANNELS> accum_[4];
+            for (size_t i = 0; i < 4; ++i) accum_[i].fill(0);
+
+            std::array<float, 4> coef;
+            lagrange_coef<3>(sinc_t_offset.fract()+1.f, coef);
+
+            auto sinc_idx = sinc_t_offset.floor();
+            auto idx = delay_line_processed_i_;
+            for (; idx <= delay_line_processed_i_ + win_len_effective_ * N_CHANNELS; idx += N_CHANNELS) {
+                assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
+                // Catmull-Rom spline coefficients
+                const float y0 = sinc_idx > 0 ? sinc_table_[sinc_idx - 1] : 0;
+                const float y1 = sinc_table_[sinc_idx];
+                const float y2 = sinc_table_[sinc_idx + 1];
+                const float y3 = sinc_idx < sinc_center_i_ * 2 + window_interp_ ? sinc_table_[sinc_idx + 2] : 0.f;
+
+                // const float h = coef[0] * y0 + coef[1] * y1 + coef[2] * y2 + coef[3] * y3;
+                const float h = coef[0] * y0 + coef[1] * y1 + coef[2] * y2 + coef[3] * y3;
+                // const float h  = sinc_t_offset.fract_linear_interp(y1, y2);
+
+                for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
+                    accum_[0][nchan]  += delay_line_[idx + nchan] * h;
+                    // accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
+                    // accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
+                }
+                sinc_idx += window_interp_;
+            }
+
+            for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
+                *result++ = accum_[0][nchan];
+            }
+        // Cubic interpolation reserve
+        } else if (false) {
+            std::array<accum_t, N_CHANNELS> accum_low_;
+            std::array<accum_t, N_CHANNELS> accum_high_;
+
+            std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
+            std::fill(accum_low_.begin(), accum_low_.end(), 0.f);
+
+            auto sinc_idx = sinc_t_offset.floor();
+            for (auto idx = delay_line_processed_i_; idx <= delay_line_processed_i_ + win_len_effective_ * N_CHANNELS; idx += N_CHANNELS) {
+                assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
+                // Catmull-Rom spline coefficients
+                const float y0 = sinc_idx > 1 ? sinc_table_[sinc_idx - 1] : 0.f; // y-1
+                const float y1 = sinc_table_[sinc_idx]; // y0 (start point)
+                const float y2 = sinc_table_[sinc_idx+1]; // y1 (end point)
+                const float y3 = sinc_idx < sinc_center_i_ * 2 + window_interp_? sinc_table_[sinc_idx +2] : 0.f; // y2
+
+                // Catmull-Rom cubic polynomial coefficients
+                const float a0 = -0.5f * y0 + 1.5f * y1 - 1.5f * y2 + 0.5f * y3;
+                const float a1 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+                const float a2 = -0.5f * y0 + 0.5f * y2;
+                const float a3 = y1;
+
+                const float t =  sinc_t_offset.fract();
+                const float h = a0 * t * t * t + a1 * t * t + a2 * t + a3;
+                // const float h  = a2 * t + a3;
+
+                for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
+                    accum_low_[nchan]  += delay_line_[idx + nchan] * h;
+                    // accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
+                    // accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
+                }
+                sinc_idx += window_interp_;
+            }
+
+            for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
+                *result++ = accum_low_[nchan];
+                // *result++ = sinc_t_offset.fract_linear_interp(accum_low_[nchan], accum_high_[nchan]);
+            }
+        // Linear interpolation between accumulators
         } else {
             std::array<accum_t, N_CHANNELS> accum_low_;
             std::array<accum_t, N_CHANNELS> accum_high_;

@@ -20,16 +20,6 @@ class TestSrcMethods(unittest.TestCase):
         self.fs_in = 48000
         self.fs_out = 48000
         self.n_channels = 1
-        self.src = Src(self.fs_in, self.fs_out, 1., self.n_channels)
-        self.speex = SpeexResampler(self.fs_in, self.fs_out, 1., self.n_channels)
-        # self.src = src_open(SRC_PROFILE_DEFAULT, self.n_channels-1,  self.fs_in, self.fs_out)
-        error = ctypes.c_int()
-        self.speex_state = speex_resampler_init(1, self.fs_in, self.fs_out, 10, error)
-        self.initial_out_countdown = speex_resampler_get_output_latency(self.speex_state)
-        self.initial_in_latency = speex_resampler_get_input_latency(self.speex_state)
-
-        self.in_frame_size = self.in_frame_pos = min(self.initial_in_latency * self.n_channels, self.FrameSz);
-
 
         self.pushed = 0
         self.sig_out = np.array([])
@@ -104,7 +94,10 @@ class TestSrcMethods(unittest.TestCase):
         """Calculate Total Harmonic Distortion"""
 
         window_size = round(sr / fundamental_freq)
-        n = 4096 // window_size
+        if resampled.shape[0] > 8192:
+            n = 4096 // window_size
+        else:
+            n = 2
         window_size = window_size * n
         window = np.ones(window_size)
 
@@ -261,60 +254,59 @@ class TestSrcMethods(unittest.TestCase):
         """Test harmonic distortion on pure sine waves"""
 
         results = {}
-        in_sr = 8000
-
         # Test different frequency sines at different target sample rates
         # test_freqs = [100, 441, 960, 4410, 9600]
-        # target_srs = [44100, 96000]
-        resamplers = {"SRC": Src, "Speex": SpeexResampler,}
+        target_srs = [44100, 48000, 96000]
         test_freqs = [2000]
-        target_srs = [24000]
+        # target_srs = [24000]
         # resamplers = {"Speex": SpeexResampler}
         # resamplers = {"SRC": Src}
+        resamplers = { "Speex": SpeexResampler, "SRC": Src,}
 
         resampler_result = {}
         for resampler_name, resampler_ctr in resamplers.items():
             for freq in test_freqs:
                 freq_results = {}
 
-                for out_sr in target_srs:
-                    coeff = 1.
-                    resampler = resampler_ctr(in_sr, out_sr, coeff, 1)
+                for in_sr in [8000]:
+                    for out_sr in [24000]:
+                        coeff = 1.
+                        resampler = resampler_ctr(in_sr, out_sr, coeff, 1)
 
-                    # Skip if output SR is too low for the frequency (Nyquist)
-                    if freq > out_sr / 2.1:  # Adding some margin
-                        continue
+                        # Skip if output SR is too low for the frequency (Nyquist)
+                        if freq > out_sr / 2.1:  # Adding some margin
+                            continue
 
-                    # Generate a sine wave
-                    duration = 1
-                    input_signal = self.generate_sine(float(freq), 0, duration, in_sr)
+                        # Generate a sine wave
+                        duration = 1
+                        input_signal = self.generate_sine(float(freq), 0, duration, in_sr)
 
-                    times = resampler.do_resample(input_signal, coeff)
-                    times = np.array(times) / resampler.FrameSz * self.fs_in
-                    resampled_signal = resampler.sig_out
-                    t_resampled = resampler.sig_out_t / in_sr
-                    # t_resampled = np.arange(t_resampled[0], t_resampled[-1], step=1/out_sr)
-                    reference_signal = self.generate_sine(float(freq), 0, duration, out_sr, t_resampled)
+                        times = resampler.do_resample(input_signal, coeff)
+                        times = np.array(times) / resampler.FrameSz * self.fs_in
+                        resampled_signal = resampler.sig_out
+                        t_resampled = resampler.sig_out_t / in_sr
+                        # t_resampled = np.arange(t_resampled[0], t_resampled[-1], step=1/out_sr)
+                        reference_signal = self.generate_sine(float(freq), 0, duration, out_sr, t_resampled)
 
-                    # Match lengths for comparison
-                    min_len = min(len(resampled_signal), len(reference_signal))
-                    resampled_signal = resampled_signal[:min_len]
-                    reference_signal = reference_signal[:min_len]
+                        # Match lengths for comparison
+                        min_len = min(len(resampled_signal), len(reference_signal))
+                        resampled_signal = resampled_signal[:min_len]
+                        reference_signal = reference_signal[:min_len]
 
-                    # Calculate THD
-                    thd, _, _, f, sf = self.calculate_thd(resampled_signal, out_sr, freq)
-                    thdref, _, _, fref, sfref = self.calculate_thd(reference_signal, out_sr, freq)
-                    # plt.plot(t_resampled, resampled_signal, '+-')
-                    plt.plot(f, 20*np.log10(sf+1e-20), label=resampler_name)
+                        # Calculate THD
+                        thd, _, _, f, sf = self.calculate_thd(resampled_signal, out_sr, freq)
+                        thdref, _, _, fref, sfref = self.calculate_thd(reference_signal, out_sr, freq)
+                        # plt.plot(t_resampled[1:], (np.diff(t_resampled) - 1/out_sr), '+-')
+                        plt.plot(f, 20*np.log10(sf+1e-20), label=resampler_name)
 
-                    snr = self.calculate_snr(reference_signal, resampled_signal)
+                        snr = self.calculate_snr(reference_signal, resampled_signal)
 
-                    freq_results[out_sr] = {
-                        'thd': thd,
-                        'snr': snr
-                    }
+                        freq_results[out_sr] = {
+                            'thd': thd,
+                            'snr': snr
+                        }
 
-                    print(f"{resampler_name}: sine {freq}Hz to {out_sr}Hz: THD={thd:.6f}%, SNR={snr:.2f}dB")
+                        print(f"{resampler_name}: sine {freq}Hz @{in_sr} / {out_sr}Hz: THD={thd:.6f}%, SNR={snr:.2f}dB")
 
                 results[freq] = freq_results
             resampler_result[resampler_name] = results
