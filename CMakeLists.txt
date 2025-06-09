@@ -54,41 +54,47 @@ if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
 endif()
 
 add_compile_options(
-  # enable assertions (even in release build)
-  -UNDEBUG
+  # enable assertions (even in release build
   -pthread
+  -Werror
+  #    -march=tigerlake
+  -march=core-avx2#tigerlake
+  #    -march=x86-64
+  -funwind-tables
+  -fno-omit-frame-pointer
 )
 add_link_options(
   -pthread
 )
 
-#if(CMAKE_BUILD_TYPE STREQUAL Debug)
+if(${CMAKE_BUILD_TYPE} STREQUAL Release)
   add_compile_options(
-    -Werror
+    -UNDEBUG
     -O3
-    -march=tigerlake
-#    -march=core-avx2#tigerlake
-#    -march=x86-64
     -ggdb
-    -funwind-tables
-    -fno-omit-frame-pointer
   )
-#  add_compile_options(
-#    -fsanitize=address
-#    -fsanitize=undefined
-#  )
-#  add_link_options(
-#    -fsanitize=address
-#    -fsanitize=undefined
-#    -static-libasan
-#  )
-#endif()
+elseif (${CMAKE_BUILD_TYPE} STREQUAL Debug)
+  add_compile_options(
+    -DNDEBUG
+    -O0
+    -ggdb
+  )
+  add_compile_options(
+    -fsanitize=address
+    -fsanitize=undefined
+  )
+  add_link_options(
+    -fsanitize=address
+    -fsanitize=undefined
+    -static-libasan
+  )
+endif()
 
 add_library(src SHARED converter.h src.cpp)
 get_target_property(src_DIR src LIBRARY_OUTPUT_DIRECTORY)
 
 set(INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
-include_directories(INCLUDE_DIR)
+include_directories(${INCLUDE_DIR})
 
 find_package(Python3 REQUIRED)
 add_custom_command(
@@ -102,4 +108,8 @@ add_custom_target(tool_bin ALL
   DEPENDS ${PROJECT_SOURCE_DIR}/tests/src.py
 )
 
+add_executable(new_target tests/benchmark.cpp)
+target_link_libraries(new_target src)
 
+add_executable(bench_speex tests/benchmark_speex.cpp)
+target_link_libraries(bench_speex speexdsp)

@@ -8,7 +8,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 def do_test(resampler):
-    length = 48000 * 10
+    length = 48000 * 1
     n = np.arange(0, length)
     s_inp = np.random.randn(length)
     times_spent = resampler.do_resample(s_inp, 1.03)
@@ -22,10 +22,10 @@ def do_test(resampler):
 if __name__ == '__main__':
     matplotlib.use('TkAgg')
 
-    src = Src(48000, 48000, coeff_=1.03, nchannels_=1)
-    src_res = do_test(src)
     speex = SpeexResampler(48000, 48000, coeff_=1.03, nchannels_=1)
     speex_res = do_test(speex)
+    src = Src(48000, 48000, coeff_=1.03, nchannels_=1)
+    src_res = do_test(src)
 
     print("Src:\t\tavg: {:.3f}\tstd: {:.3f}\t{}".format(src_res["avg"], src_res["var"], src_res["times"].shape[0] ))
     print("Speex:\t\tavg: {:.3f}\tstd: {:.3f}\t{}".format(speex_res["avg"], speex_res["var"], speex_res["times"].shape[0] ))

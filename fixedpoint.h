@@ -136,6 +136,11 @@ public:
         return (x2 - x1) * fract + x1;
     }
 
+    float fract() const
+    {
+        return static_cast<float>(value & fract_bitmask_) / (T(1) << FractionalBits);
+    }
+
 private:
     T value;
     static constexpr T fract_bitmask_ = (T(1) << FractionalBits) - 1;

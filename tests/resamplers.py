@@ -70,7 +70,7 @@ class SpeexResampler:
             err = speex_resampler_process_interleaved_float(self.speex_state, frame, in_len, output_frame, out_len)
             time_spent = time.time() - start_ts
             navailable = out_len.value * self.nchannels
-            if navailable > 0:
+            if navailable > self.FrameSz // 2:
                     time_spent_list.append(time_spent/navailable)
 
             # in_len.value now contains samples actually consumed (per-channel)
@@ -133,7 +133,7 @@ class Src:
                 start_ts = time.time()
                 navailable = src_pop_samples(self.src, input_frame, self.FrameSz)
                 time_spent = time.time() - start_ts
-                if navailable > 0:
+                if navailable > self.FrameSz // 2:
                     time_spent_list.append(time_spent/navailable)
                 # timestamp of the last sample
                 tgap = self.pushed // self.nchannels - src_left_to_process(self.src)

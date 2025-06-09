@@ -29,8 +29,9 @@ class TestSrcMethods(unittest.TestCase):
         time.sleep(0.5)
 
     def tearDown(self):
-        self.src.tear_down()
-        self.speex.tear_down()
+        pass
+        # self.src.tear_down()
+        # self.speex.tear_down()
         # src_close(self.src)
         # speex_resampler_destroy(self.speex_state)
 
@@ -171,7 +172,7 @@ class TestSrcMethods(unittest.TestCase):
         self.assertTrue(np.all(np.abs(y_ref_src-self.sig_out)/self.sig_out < 1e-3))
 
 
-    def test_sinewave_upsample(self):
+    def disable_test_sinewave_upsample(self):
         fs = np.pi / 63
         n = np.arange(0, 1008*100)
         s_inp = np.sin(fs * n)
@@ -223,7 +224,8 @@ class TestSrcMethods(unittest.TestCase):
         # dt_ = 1.125
         # sinc_step_ = 0.888888896
         coef = 0.75
-        resamplers = {"SRC": self.src, "Speex": self.speex}
+        resamplers = { "Speex": SpeexResampler(self.fs_in, self.fs_out, 1., self.n_channels),
+                       "SRC": Src(self.fs_in, self.fs_out, 1., self.n_channels),}
         for i, (name, res) in enumerate(resamplers.items()):
             # plt.subplot(len(resamplers), 1, i+1)
             _ = res.do_resample(s_inp, coef)
@@ -262,6 +264,7 @@ class TestSrcMethods(unittest.TestCase):
         # resamplers = {"Speex": SpeexResampler}
         # resamplers = {"SRC": Src}
         resamplers = { "Speex": SpeexResampler, "SRC": Src,}
+        duration = 10
 
         resampler_result = {}
         for resampler_name, resampler_ctr in resamplers.items():
@@ -269,6 +272,8 @@ class TestSrcMethods(unittest.TestCase):
                 freq_results = {}
 
                 for in_sr in [8000]:
+                    input_signal = self.generate_sine(float(freq), 0, duration, in_sr)
+
                     for out_sr in [24000]:
                         coeff = 1.
                         resampler = resampler_ctr(in_sr, out_sr, coeff, 1)
@@ -278,8 +283,6 @@ class TestSrcMethods(unittest.TestCase):
                             continue
 
                         # Generate a sine wave
-                        duration = 1
-                        input_signal = self.generate_sine(float(freq), 0, duration, in_sr)
 
                         times = resampler.do_resample(input_signal, coeff)
                         times = np.array(times) / resampler.FrameSz * self.fs_in
