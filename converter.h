@@ -12,6 +12,10 @@
 #include "fixedpoint.h"
 #include "SrcInterface.h"
 
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#endif
+
 enum Quality
 {
     LOW,
@@ -439,202 +443,108 @@ private:
 
     void do_mac(const sinc_t sinc_t_offset, sample_t *result)
     {
-        if constexpr (false && N_CHANNELS == 1) {
-            #if false &&  defined(__AVX512F__)
-                // AVX-512 optimization for N_CHANNELS == 1
-                constexpr size_t VEC_SIZE = 16; // 16 floats per __m512
-                accum_t accum_low = 0;
-                accum_t accum_high = 0;
-
-                auto sinc_idx = sinc_t_offset.floor();
-                size_t idx = delay_line_processed_i_;
-                size_t end = delay_line_processed_i_ + win_len_effective_;
-                size_t vec_end = idx + ((end - idx) / VEC_SIZE) * VEC_SIZE;
-
-                __m512 acc_low = _mm512_setzero_ps();
-                __m512 acc_high = _mm512_setzero_ps();
-
-                for (; idx + VEC_SIZE <= vec_end; idx += VEC_SIZE, sinc_idx += window_interp_ * VEC_SIZE) {
-                    // Load delay_line_ and sinc_table_ values
-                    __m512 delay = _mm512_loadu_ps(&delay_line_[idx]);
-                    __m512 sinc_l, sinc_h;
-
-                    // Gather sinc_table_ values for low and high
-                    __m512i sinc_indices = _mm512_set_epi32(
-                        sinc_idx + window_interp_ * 15,
-                        sinc_idx + window_interp_ * 14,
-                        sinc_idx + window_interp_ * 13,
-                        sinc_idx + window_interp_ * 12,
-                        sinc_idx + window_interp_ * 11,
-                        sinc_idx + window_interp_ * 10,
-                        sinc_idx + window_interp_ * 9,
-                        sinc_idx + window_interp_ * 8,
-                        sinc_idx + window_interp_ * 7,
-                        sinc_idx + window_interp_ * 6,
-                        sinc_idx + window_interp_ * 5,
-                        sinc_idx + window_interp_ * 4,
-                        sinc_idx + window_interp_ * 3,
-                        sinc_idx + window_interp_ * 2,
-                        sinc_idx + window_interp_ * 1,
-                        sinc_idx + window_interp_ * 0
-                    );
-                    __m512i sinc_indices_h = _mm512_add_epi32(sinc_indices, _mm512_set1_epi32(1));
-
-                    sinc_l = _mm512_i32gather_ps(sinc_indices, sinc_table_.data(), 4);
-                    sinc_h = _mm512_i32gather_ps(sinc_indices_h, sinc_table_.data(), 4);
-
-                    acc_low = _mm512_fmadd_ps(delay, sinc_l, acc_low);
-                    acc_high = _mm512_fmadd_ps(delay, sinc_h, acc_high);
-                }
-
-                // Horizontal sum of acc_low and acc_high
-                float tmp[16];
-                _mm512_storeu_ps(tmp, acc_low);
-                for (int i = 0; i < 16; ++i) accum_low += tmp[i];
-                _mm512_storeu_ps(tmp, acc_high);
-                for (int i = 0; i < 16; ++i) accum_high += tmp[i];
-
-                // Handle remaining elements
-                for (; idx <= end; ++idx, sinc_idx += window_interp_) {
-                    accum_low  += delay_line_[idx] * sinc_table_[sinc_idx];
-                    accum_high += delay_line_[idx] * sinc_table_[sinc_idx + 1];
-                }
-
-                *result = sinc_t_offset.fract_linear_interp(accum_low, accum_high);
-            #else
-                accum_t accum_low_odd = 0;
-                accum_t accum_high_odd = 0;
-                accum_t accum_low_even = 0;
-                accum_t accum_high_even = 0;
-
-                auto sinc_idx_odd = sinc_t_offset.floor();
-                auto sinc_idx_even = sinc_idx_odd + window_interp_;
-                auto idx = delay_line_processed_i_;
-                for (; idx < delay_line_processed_i_ + win_len_effective_; idx += 2) {
-                    assert(sinc_idx_odd <= sinc_center_i_ * 2 + window_interp_);
-                    assert(sinc_idx_even <= sinc_center_i_ * 2 + window_interp_);
-                    accum_low_odd  +=  delay_line_[idx]     * sinc_table_[sinc_idx_odd];
-                    accum_high_odd +=  delay_line_[idx]     * sinc_table_[sinc_idx_odd + 1];
-                    accum_low_even  += delay_line_[idx + 1] * sinc_table_[sinc_idx_odd + window_interp_];
-                    accum_high_even += delay_line_[idx + 1] * sinc_table_[sinc_idx_odd + window_interp_ + 1];
-                    sinc_idx_odd += window_interp_ * 2;
-                    // sinc_idx_even += window_interp_;
-                }
-                // idx -= 1;
-                // sinc_idx_odd -= window_interp_;
-                for (; idx <= delay_line_processed_i_ + win_len_effective_; idx += 1) {
-                    accum_low_odd  += delay_line_[idx] * sinc_table_[sinc_idx_odd];
-                    accum_high_odd += delay_line_[idx] * sinc_table_[sinc_idx_odd + 1];
-                    sinc_idx_odd += window_interp_;
-                }
-
-                accum_low_odd += accum_low_even;
-                accum_high_odd += accum_high_even;
-
-                *result = sinc_t_offset.fract_linear_interp(accum_low_odd, accum_high_odd);
-            #endif
-        // Cubic interpolation between accumulators
-        } else if (true) {
-            std::array<accum_t, N_CHANNELS> accum_0;
-            std::array<accum_t, N_CHANNELS> accum_1;
-            std::array<accum_t, N_CHANNELS> accum_2;
-            std::array<accum_t, N_CHANNELS> accum_3;
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+        if constexpr (N_CHANNELS == 1) {
+            std::array<accum_t, 1> accum_0 = {0}, accum_1 = {0}, accum_2 = {0}, accum_3 = {0};
             std::array<float, 4> coef;
             cubic_coef(sinc_t_offset.fract()+1.f, coef);
-            // lagrange_coef<3>(sinc_t_offset.fract()+1.f, coef);
 
             auto sinc_idx = sinc_t_offset.floor();
             auto idx = delay_line_processed_i_;
-            for (auto nchan = 0; nchan < N_CHANNELS; ++nchan) {
-                accum_0[nchan] = delay_line_[idx + nchan] * (sinc_idx > 0 ? sinc_table_[sinc_idx-1] : 0.f);
-                accum_1[nchan] = delay_line_[idx + nchan] * sinc_table_[sinc_idx];
-                accum_2[nchan] = delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
-                accum_3[nchan] = delay_line_[idx + nchan] * sinc_table_[sinc_idx + 2];
+            const size_t i_end = win_len_effective_ + 1;
+
+            // Prepare pointers for NEON
+            const float *delay_ptr = &delay_line_[idx];
+            const float *sinc_ptr = &sinc_table_[sinc_idx > 0 ? sinc_idx-1 : 0];
+
+            float32x4_t acc0 = vdupq_n_f32(0.f);
+            float32x4_t acc1 = vdupq_n_f32(0.f);
+            float32x4_t acc2 = vdupq_n_f32(0.f);
+            float32x4_t acc3 = vdupq_n_f32(0.f);
+
+            size_t i = 0;
+            // Main loop: process 4 samples at a time
+            for (; i + 3 < i_end; i += 4) {
+                float32x4_t d = vld1q_f32(delay_ptr + i);
+                float32x4_t s0 = vld1q_f32(sinc_ptr + (i+0)*window_interp_);
+                float32x4_t s1 = vld1q_f32(sinc_ptr + (i+1)*window_interp_);
+                float32x4_t s2 = vld1q_f32(sinc_ptr + (i+2)*window_interp_);
+                float32x4_t s3 = vld1q_f32(sinc_ptr + (i+3)*window_interp_);
+
+                acc0 = vmlaq_f32(acc0, d, s0);
+                acc1 = vmlaq_f32(acc1, d, s1);
+                acc2 = vmlaq_f32(acc2, d, s2);
+                acc3 = vmlaq_f32(acc3, d, s3);
+            }
+            // Horizontal add
+            float accum0, accum1, accum2, accum3;
+#if defined(__aarch64__)
+            accum0 = vaddvq_f32(acc0);
+            accum1 = vaddvq_f32(acc1);
+            accum2 = vaddvq_f32(acc2);
+            accum3 = vaddvq_f32(acc3);
+#else
+            float tmp0[4], tmp1[4], tmp2[4], tmp3[4];
+            vst1q_f32(tmp0, acc0);
+            vst1q_f32(tmp1, acc1);
+            vst1q_f32(tmp2, acc2);
+            vst1q_f32(tmp3, acc3);
+            accum0 = tmp0[0] + tmp0[1] + tmp0[2] + tmp0[3];
+            accum1 = tmp1[0] + tmp1[1] + tmp1[2] + tmp1[3];
+            accum2 = tmp2[0] + tmp2[1] + tmp2[2] + tmp2[3];
+            accum3 = tmp3[0] + tmp3[1] + tmp3[2] + tmp3[3];
+#endif
+
+            // Tail
+            for (; i < i_end; ++i) {
+                float d = delay_ptr[i];
+                accum0 += d * sinc_ptr[(i+0)*window_interp_];
+                accum1 += d * sinc_ptr[(i+1)*window_interp_];
+                accum2 += d * sinc_ptr[(i+2)*window_interp_];
+                accum3 += d * sinc_ptr[(i+3)*window_interp_];
+            }
+
+            *result = coef[0] * accum0 + coef[1] * accum1 + coef[2] * accum2 + coef[3] * accum3;
+            return;
+        }
+        #endif
+        std::array<accum_t, N_CHANNELS> accum_0;
+        std::array<accum_t, N_CHANNELS> accum_1;
+        std::array<accum_t, N_CHANNELS> accum_2;
+        std::array<accum_t, N_CHANNELS> accum_3;
+        std::array<float, 4> coef;
+        cubic_coef(sinc_t_offset.fract()+1.f, coef);
+        // lagrange_coef<3>(sinc_t_offset.fract()+1.f, coef);
+
+        auto sinc_idx = sinc_t_offset.floor();
+        auto idx = delay_line_processed_i_;
+        for (auto nchan = 0; nchan < N_CHANNELS; ++nchan) {
+            accum_0[nchan] = delay_line_[idx + nchan] * (sinc_idx > 0 ? sinc_table_[sinc_idx-1] : 0.f);
+            accum_1[nchan] = delay_line_[idx + nchan] * sinc_table_[sinc_idx];
+            accum_2[nchan] = delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
+            accum_3[nchan] = delay_line_[idx + nchan] * sinc_table_[sinc_idx + 2];
+        }
+        idx += N_CHANNELS;
+        sinc_idx += window_interp_ - 1;
+        size_t i = 1;
+        const size_t i_end = win_len_effective_ * N_CHANNELS + 1;
+        for (; i < i_end; ++i){
+            assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
+            for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
+                accum_0[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
+                accum_1[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
+                accum_2[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 2];
+                accum_3[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 3];
             }
             idx += N_CHANNELS;
-            sinc_idx += window_interp_ - 1;
-            size_t i = 1;
-            const size_t i_end = win_len_effective_ * N_CHANNELS + 1;
-            // for (; idx <= delay_line_processed_i_ + win_len_effective_ * N_CHANNELS;
-                   // idx += N_CHANNELS, sinc_idx += window_interp_) {
-            for (; i < i_end; ++i){
-                assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
-                for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
-                    accum_0[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
-                    accum_1[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
-                    accum_2[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 2];
-                    accum_3[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 3];
-                }
-                idx += N_CHANNELS;
-                sinc_idx += window_interp_;
-            }
+            sinc_idx += window_interp_;
+        }
 
-            for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
-                *result++ =   coef[0] * accum_0[nchan]
-                            + coef[1] * accum_1[nchan]
-                            + coef[2] * accum_2[nchan]
-                            + coef[3] * accum_3[nchan];
-            }
-        // Cubic interpolation reserve
-        } else if (false) {
-            std::array<accum_t, N_CHANNELS> accum_low_;
-            std::array<accum_t, N_CHANNELS> accum_high_;
-
-            std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
-            std::fill(accum_low_.begin(), accum_low_.end(), 0.f);
-
-            auto sinc_idx = sinc_t_offset.floor();
-            for (auto idx = delay_line_processed_i_; idx <= delay_line_processed_i_ + win_len_effective_ * N_CHANNELS; idx += N_CHANNELS) {
-                assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
-                // Catmull-Rom spline coefficients
-                const float y0 = sinc_idx > 1 ? sinc_table_[sinc_idx - 1] : 0.f; // y-1
-                const float y1 = sinc_table_[sinc_idx]; // y0 (start point)
-                const float y2 = sinc_table_[sinc_idx+1]; // y1 (end point)
-                const float y3 = sinc_idx < sinc_center_i_ * 2 + window_interp_? sinc_table_[sinc_idx +2] : 0.f; // y2
-
-                // Catmull-Rom cubic polynomial coefficients
-                const float a0 = -0.5f * y0 + 1.5f * y1 - 1.5f * y2 + 0.5f * y3;
-                const float a1 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
-                const float a2 = -0.5f * y0 + 0.5f * y2;
-                const float a3 = y1;
-
-                const float t =  sinc_t_offset.fract();
-                const float h = a0 * t * t * t + a1 * t * t + a2 * t + a3;
-                // const float h  = a2 * t + a3;
-
-                for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
-                    accum_low_[nchan]  += delay_line_[idx + nchan] * h;
-                    // accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
-                    // accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
-                }
-                sinc_idx += window_interp_;
-            }
-
-            for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
-                *result++ = accum_low_[nchan];
-                // *result++ = sinc_t_offset.fract_linear_interp(accum_low_[nchan], accum_high_[nchan]);
-            }
-        // Linear interpolation between accumulators
-        } else {
-            std::array<accum_t, N_CHANNELS> accum_low_;
-            std::array<accum_t, N_CHANNELS> accum_high_;
-
-            std::fill(accum_high_.begin(), accum_high_.end(), 0.f);
-            std::fill(accum_low_.begin(), accum_low_.end(), 0.f);
-
-            auto sinc_idx = sinc_t_offset.floor();
-            for (auto idx = delay_line_processed_i_; idx <= delay_line_processed_i_ + win_len_effective_ * N_CHANNELS; idx += N_CHANNELS) {
-                assert(sinc_idx <= sinc_center_i_ * 2 + window_interp_);
-                for (auto nchan = 0; nchan < N_CHANNELS; nchan++) {
-                    accum_low_[nchan]  += delay_line_[idx + nchan] * sinc_table_[sinc_idx];
-                    accum_high_[nchan] += delay_line_[idx + nchan] * sinc_table_[sinc_idx + 1];
-                }
-                sinc_idx += window_interp_;
-            }
-
-            for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
-                *result++ = sinc_t_offset.fract_linear_interp(accum_low_[nchan], accum_high_[nchan]);
-            }
+        for (size_t nchan = 0; nchan < N_CHANNELS; nchan++) {
+            *result++ =   coef[0] * accum_0[nchan]
+                        + coef[1] * accum_1[nchan]
+                        + coef[2] * accum_2[nchan]
+                        + coef[3] * accum_3[nchan];
         }
     }
 };

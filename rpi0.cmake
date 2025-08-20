@@ -16,7 +16,7 @@ set(CMAKE_CXX_COMPILER ${RPI_GCC_TRIPLE}-g++ CACHE FILEPATH "C++ compiler")
 set(CMAKE_Fortran_COMPILER ${RPI_GCC_TRIPLE}-gfortran CACHE FILEPATH "Fortran compiler")
 
 # Set the architecture-specific compiler flags
-set(ARCH_FLAGS "-march=armv8-a -mfloat-abi=hard -mfpu=vfp")
+set(ARCH_FLAGS "-march=armv8-a -mfloat-abi=hard -mfpu=neon-vfpv4 -O3 -ftree-vectorize -funroll-loops")
 set(CMAKE_C_FLAGS_INIT ${ARCH_FLAGS})
 set(CMAKE_CXX_FLAGS_INIT ${ARCH_FLAGS})
 set(CMAKE_Fortran_FLAGS_INIT ${ARCH_FLAGS})
