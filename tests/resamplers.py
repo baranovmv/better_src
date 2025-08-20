@@ -47,18 +47,15 @@ class SpeexResampler:
 
         self.speex_in_latency_diff = speex_resampler_get_input_latency(self.speex_state) - self.initial_in_latency
 
-    def do_resample(self, sig_in, coeff=1.0):
+    def do_resample(self, sig_in, coeff=1.0, out_buf=None, out_time_buf=None):
         output_frame = self.Frame16Type()
-
-        self.sig_out = np.array([])
-        self.sig_out_t = np.array([])
-
         self.set_scaling(coeff)
         dt = self.fs_in / self.fs_out * coeff
         t = 0
         time_spent_list = []
 
         idx = 0
+        out_idx = 0
         while idx < sig_in.shape[0]:
             x = sig_in[idx:idx+self.FrameSz].tolist()
             frame = self.Frame16Type(*x)
@@ -66,14 +63,13 @@ class SpeexResampler:
             in_len = ctypes.c_uint(len(x) // self.nchannels)
             out_len = ctypes.c_uint(self.FrameSz // self.nchannels)
 
-            start_ts = time.time()
+            start_ts = time.perf_counter()
             err = speex_resampler_process_interleaved_float(self.speex_state, frame, in_len, output_frame, out_len)
-            time_spent = time.time() - start_ts
+            time_spent = time.perf_counter() - start_ts
             navailable = out_len.value * self.nchannels
             if navailable > self.FrameSz // 2:
-                    time_spent_list.append(time_spent/navailable)
+                time_spent_list.append(time_spent/navailable)
 
-            # in_len.value now contains samples actually consumed (per-channel)
             idx += in_len.value * self.nchannels
 
             if self.initial_out_countdown > 0:
@@ -84,12 +80,14 @@ class SpeexResampler:
             if navailable == 0:
                 continue
 
-            sig_frame = np.array([output_frame[i] for i in range(navailable)])
-            sig_frame_t = np.arange(0,dt * (navailable // self.nchannels), dt) + t
+            if out_buf is not None:
+                out_buf[out_idx:out_idx+navailable] = [output_frame[i] for i in range(navailable)]
+            if out_time_buf is not None:
+                sig_frame_t = np.arange(0,dt * (navailable // self.nchannels), dt) + t
+                sig_frame_t = np.repeat(sig_frame_t, self.nchannels)
+                out_time_buf[out_idx:out_idx+navailable] = sig_frame_t
             t += dt * (navailable // self.nchannels)
-            self.sig_out = np.concat((self.sig_out, sig_frame))
-            sig_frame_t = np.repeat(sig_frame_t, self.nchannels)
-            self.sig_out_t = np.concat((self.sig_out_t, sig_frame_t,))
+            out_idx += navailable
 
         return time_spent_list
 
@@ -114,7 +112,7 @@ class Src:
     def tear_down(self):
         src_close(self.src)
 
-    def do_resample(self, sig_in, coeff=1.0):
+    def do_resample(self, sig_in, coeff=1.0, out_buf=None, out_time_buf=None):
         input_frame = self.Frame16Type()
 
         N = self.FrameSz
@@ -125,26 +123,28 @@ class Src:
         dt = self.fs_in / self.fs_out * coeff
         time_spent_list = []
 
+        out_idx = 0
         for i, x in enumerate(sig_split):
             frame = self.Frame16Type(*(x.tolist()))
             result = src_push_samples(self.src, frame, self.FrameSz)
             self.pushed += self.FrameSz
             while True:
-                start_ts = time.time()
+                start_ts = time.perf_counter()
                 navailable = src_pop_samples(self.src, input_frame, self.FrameSz)
-                time_spent = time.time() - start_ts
+                time_spent = time.perf_counter() - start_ts
                 if navailable > self.FrameSz // 2:
                     time_spent_list.append(time_spent/navailable)
-                # timestamp of the last sample
                 tgap = self.pushed // self.nchannels - src_left_to_process(self.src)
                 if navailable == 0:
                     break
                 t = tgap - dt * (navailable // self.nchannels)
-                sig_frame = np.array([input_frame[i] for i in range(navailable)])
-                sig_frame_t = np.arange(0,dt * (navailable // self.nchannels), dt) + t
-                self.sig_out = np.concat((self.sig_out, sig_frame))
-                sig_frame_t = np.repeat(sig_frame_t, self.nchannels)
-                self.sig_out_t = np.concat((self.sig_out_t, sig_frame_t,))
+                if out_buf is not None:
+                    out_buf[out_idx:out_idx+navailable] = [input_frame[i] for i in range(navailable)]
+                if out_time_buf is not None:
+                    sig_frame_t = np.arange(0,dt * (navailable // self.nchannels), dt) + t
+                    sig_frame_t = np.repeat(sig_frame_t, self.nchannels)
+                    out_time_buf[out_idx:out_idx+navailable] = sig_frame_t
+                out_idx += navailable
 
         npad_converted = floor(self.fs_out / self.fs_in / coeff * (npad // self.nchannels)) * self.nchannels
         if npad_converted > 0:
