@@ -103,16 +103,19 @@ set(INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
 include_directories(${INCLUDE_DIR})
 
 find_package(Python3 REQUIRED)
-add_custom_command(
-  COMMENT "Generating python binding"
-  DEPENDS ${INCLUDE_DIR}/src.h ${src}
-  OUTPUT ${PROJECT_SOURCE_DIR}/tests/src.py
-  COMMAND ${Python3_EXECUTABLE} ${CTYPESGEN}/run.py -o ${PROJECT_SOURCE_DIR}/tests/src.py
-        -I ${INCLUDE_DIR} -L ${src_DIR} -l $<TARGET_FILE:src> -D __GNUC__ ${INCLUDE_DIR}/src.h
-)
-add_custom_target(tool_bin ALL
-  DEPENDS ${PROJECT_SOURCE_DIR}/tests/src.py
-)
+
+if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL CMAKE_HOST_SYSTEM_NAME)
+  add_custom_command(
+    COMMENT "Generating python binding"
+    DEPENDS ${INCLUDE_DIR}/src.h ${src}
+    OUTPUT ${PROJECT_SOURCE_DIR}/tests/src.py
+    COMMAND ${Python3_EXECUTABLE} ${CTYPESGEN}/run.py -o ${PROJECT_SOURCE_DIR}/tests/src.py
+          -I ${INCLUDE_DIR} -L ${src_DIR} -l $<TARGET_FILE:src> -D __GNUC__ ${INCLUDE_DIR}/src.h
+  )
+  add_custom_target(tool_bin ALL
+    DEPENDS ${PROJECT_SOURCE_DIR}/tests/src.py
+  )
+endif()
 
 add_executable(benchmark tests/benchmark.cpp)
 target_link_libraries(benchmark src speexdsp)
