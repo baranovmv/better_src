@@ -9,6 +9,7 @@
 #include <random>
 #include <speex/speex_resampler.h>
 #include <vector>
+#include <algorithm>
 
 template <size_t N> void fill_wgn(std::array<float, N>& arr) {
     // Create random number generator
@@ -24,8 +25,9 @@ template <size_t N> void fill_wgn(std::array<float, N>& arr) {
     }
 }
 
-constexpr size_t in_fs = 8000;
-constexpr size_t out_fs = 24000;
+constexpr double coeff = 1.03;
+constexpr size_t in_fs = 48000;
+constexpr size_t out_fs = 48000;
 constexpr size_t in_signal_duration = in_fs * 100;
 constexpr size_t out_signal_duration = out_fs * 100;
 constexpr size_t frame_size = 64;
@@ -44,16 +46,31 @@ using Signal = std::array<float, in_signal_duration>;
 using OutSignal = std::array<float, out_signal_duration>;
 
 BenchmarkResult compute_stats(const std::vector<double>& time, double overall_time, size_t out_samples) {
+    if (time.empty()) {
+        return {0, 0, overall_time, 0};
+    }
+    // Copy and sort times
+    std::vector<double> sorted_time = time;
+    std::sort(sorted_time.begin(), sorted_time.end());
+    // Exclude 15% smallest and 15% largest
+    size_t n = sorted_time.size();
+    size_t lower = static_cast<size_t>(n * 0.15);
+    size_t upper = n - static_cast<size_t>(n * 0.15);
+    if (upper <= lower) {
+        lower = 0;
+        upper = n;
+    }
     double avg = 0;
-    for (auto x : time)
-        avg += x;
-    if (!time.empty())
-        avg /= time.size();
     double std = 0;
-    for (auto x : time)
-        std += (x - avg) * (x - avg);
-    if (!time.empty())
-        std = sqrt(std / time.size());
+    size_t count = upper > lower ? upper - lower : 0;
+    if (count > 0) {
+        for (size_t i = lower; i < upper; ++i)
+            avg += sorted_time[i];
+        avg /= count;
+        for (size_t i = lower; i < upper; ++i)
+            std += (sorted_time[i] - avg) * (sorted_time[i] - avg);
+        std = sqrt(std / count);
+    }
     double realtimeness =
         (out_samples > 0 ? overall_time * 1e-9 * static_cast<double>(out_fs) / static_cast<double>(out_samples) : 0);
     return { avg, std, overall_time, realtimeness };
@@ -81,6 +98,8 @@ BenchmarkResult benchmark_src(const Signal& signal, OutSignal& out_signal) {
     std::vector<double> time;
     double overall_time = 0;
     src_t* src = src_open(profile, MONO, in_fs, out_fs);
+    // Set scale for fractional coeff (like src_set_scale in Python)
+    assert(src_set_scale(src, coeff) > 0);
     size_t out_samples = 0;
     for (size_t i = 0; i < in_signal_duration && out_samples < out_signal_duration; i += frame_size) {
         assert(src_push_samples(src, &signal[i], frame_size));
@@ -113,6 +132,30 @@ BenchmarkResult benchmark_speex(const Signal& signal, OutSignal& out_signal) {
         std::cerr << "Failed to initialize SpeexDSP resampler: " << err << std::endl;
         return { 0, 0, 0, 0 };
     }
+
+    // --- Calculate ratio_num and ratio_den as in Python ---
+    const int max_numerator = 60000;
+    const int base_frac = 10;
+    double base = (in_fs < max_numerator && out_fs < max_numerator)
+        ? (std::round(max_numerator / std::max(in_fs, out_fs) * base_frac) / static_cast<double>(base_frac))
+        : 1.0;
+    spx_uint32_t ratio_num = static_cast<spx_uint32_t>(std::round(in_fs * coeff * base));
+    spx_uint32_t ratio_den = static_cast<spx_uint32_t>(std::round(out_fs * base));
+    // ------------------------------------------------------
+
+    err = speex_resampler_set_rate_frac(
+        resampler,
+        ratio_num,
+        ratio_den,
+        static_cast<spx_uint32_t>(std::round(in_fs * coeff)),
+        out_fs
+    );
+    if (err != RESAMPLER_ERR_SUCCESS) {
+        std::cerr << "Failed to set rate fraction: " << err << std::endl;
+        speex_resampler_destroy(resampler);
+        return { 0, 0, 0, 0 };
+    }
+
     size_t out_samples = 0, in_i = 0;
     float* in_pos = const_cast<float*>(signal.data());
     float* out_pos = out_signal.data();
