@@ -114,8 +114,6 @@ add_custom_target(tool_bin ALL
   DEPENDS ${PROJECT_SOURCE_DIR}/tests/src.py
 )
 
-add_executable(bench_src tests/benchmark.cpp)
-target_link_libraries(bench_src src)
-
-add_executable(bench_speex tests/benchmark_speex.cpp)
-target_link_libraries(bench_speex speexdsp)
+add_executable(benchmark tests/benchmark.cpp)
+target_link_libraries(benchmark src speexdsp)
+set_target_properties(benchmark PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
