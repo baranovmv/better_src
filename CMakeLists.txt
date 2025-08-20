@@ -27,6 +27,8 @@ set(CTYPESGEN ${CMAKE_CURRENT_SOURCE_DIR}/external/ctypesgen)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_INSTALL_RPATH "$ORIGIN")
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
 add_definitions(
   -D_POSIX_C_SOURCE=200809L
@@ -58,8 +60,11 @@ add_compile_options(
   -pthread
   -Werror
   #    -march=tigerlake
-  -march=core-avx2#tigerlake
+  #-march=core-avx2#tigerlake
   #    -march=x86-64
+#  -march=armv6
+#  --with-float=hard
+#  --with-fpu=vfp
   -funwind-tables
   -fno-omit-frame-pointer
 )
@@ -90,6 +95,7 @@ elseif (${CMAKE_BUILD_TYPE} STREQUAL Debug)
   )
 endif()
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_library(src SHARED converter.h src.cpp)
 get_target_property(src_DIR src LIBRARY_OUTPUT_DIRECTORY)
 
@@ -108,8 +114,8 @@ add_custom_target(tool_bin ALL
   DEPENDS ${PROJECT_SOURCE_DIR}/tests/src.py
 )
 
-add_executable(new_target tests/benchmark.cpp)
-target_link_libraries(new_target src)
+add_executable(bench_src tests/benchmark.cpp)
+target_link_libraries(bench_src src)
 
 add_executable(bench_speex tests/benchmark_speex.cpp)
 target_link_libraries(bench_speex speexdsp)
