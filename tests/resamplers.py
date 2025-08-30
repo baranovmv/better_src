@@ -3,6 +3,7 @@ from speexdsp_resampler import *
 
 import ctypes
 import numpy as np
+from math import floor
 import time
 
 class SpeexResampler:
@@ -116,6 +117,7 @@ class Src:
         input_frame = self.Frame16Type()
 
         N = self.FrameSz
+        npad = self.FrameSz - sig_in.shape[0] % self.FrameSz
         sig_split = [np.pad(sig_in[i:i + N], (0, N - sig_in[i:i + N].shape[0])) for i in range(0, sig_in.shape[0], N)]
 
         src_set_scale(self.src, coeff)
@@ -143,4 +145,8 @@ class Src:
                 sig_frame_t = np.repeat(sig_frame_t, self.nchannels)
                 self.sig_out_t = np.concat((self.sig_out_t, sig_frame_t,))
 
+        npad_converted = floor(self.fs_out / self.fs_in / coeff * (npad // self.nchannels)) * self.nchannels
+        if npad_converted > 0:
+            self.sig_out_t = self.sig_out_t[:-npad_converted]
+            self.sig_out = self.sig_out[:-npad_converted]
         return time_spent_list
