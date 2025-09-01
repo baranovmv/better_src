@@ -138,12 +138,19 @@ class Src:
                 if navailable == 0:
                     break
                 t = tgap - dt * (navailable // self.nchannels)
-                if out_buf is not None:
-                    out_buf[out_idx:out_idx+navailable] = [input_frame[i] for i in range(navailable)]
-                if out_time_buf is not None:
+                if out_buf is not None or out_time_buf is not None:
+                    if out_buf is not None:
+                        out_buf[out_idx:out_idx+navailable] = [input_frame[i] for i in range(navailable)]
+                    if out_time_buf is not None:
+                        sig_frame_t = np.arange(0,dt * (navailable // self.nchannels), dt) + t
+                        sig_frame_t = np.repeat(sig_frame_t, self.nchannels)
+                        out_time_buf[out_idx:out_idx+navailable] = sig_frame_t
+                else:
+                    sig_frame = np.array([input_frame[i] for i in range(navailable)])
                     sig_frame_t = np.arange(0,dt * (navailable // self.nchannels), dt) + t
+                    self.sig_out = np.concat((self.sig_out, sig_frame))
                     sig_frame_t = np.repeat(sig_frame_t, self.nchannels)
-                    out_time_buf[out_idx:out_idx+navailable] = sig_frame_t
+                    self.sig_out_t = np.concat((self.sig_out_t, sig_frame_t,))
                 out_idx += navailable
 
         npad_converted = floor(self.fs_out / self.fs_in / coeff * (npad // self.nchannels)) * self.nchannels
